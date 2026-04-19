@@ -12,7 +12,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-```
+
 steps:
   - name: Checkout code
     uses: actions/checkout@v4
@@ -37,4 +37,3 @@ steps:
     run: |
       cd build
       ctest --output-on-failure
-```
