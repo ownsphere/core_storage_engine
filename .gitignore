@@ -1,0 +1,47 @@
+# ---------------- BUILD FILES ----------------
+
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+
+# ---------------- BINARIES ----------------
+
+*.out
+*.app
+*.exe
+*.o
+*.so
+*.a
+*.dylib
+data/
+
+# ---------------- COVERAGE ----------------
+
+*.gcno
+*.gcda
+*.gcov
+coverage/
+coverage-report/
+coverage.info
+*.info
+
+# ---------------- LOGS ----------------
+
+*.log
+
+# ---------------- MACOS ----------------
+
+.DS_Store
+
+# ---------------- EDITORS ----------------
+
+.vscode/
+.idea/
+
+# ---------------- TEMP FILES ----------------
+
+*.tmp
+*.swp
