@@ -1,0 +1,48 @@
+name: C++ CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ---------------- INSTALL ----------------
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ lcov libgtest-dev
+
+      # ---------------- BUILD GTEST ----------------
+      - name: Build GTest
+        run: |
+          cd /usr/src/gtest
+          sudo cmake .
+          sudo make
+          sudo cp lib/*.a /usr/lib
+
+      # ---------------- CONFIGURE ----------------
+      - name: Configure
+        run: cmake -S . -B build -DENABLE_COVERAGE=ON
+
+      # ---------------- BUILD ----------------
+      - name: Build
+        run: cmake --build build --parallel
+
+      # ---------------- TEST ----------------
+      - name: Run Tests
+        run: ctest --test-dir build --output-on-failure
+
+      # ---------------- COVERAGE ----------------
+      - name: Generate Coverage
+        run: |
+          lcov --capture --directory build --output-file coverage.info --ignore-errors mismatch
+          lcov --remove coverage.info '/usr/*' --output-file coverage.info
+          lcov --list coverage.info
