@@ -25,36 +25,36 @@ add_executable(engine
 target_link_libraries(engine engine_lib)
 
 # ---------------- TESTING ----------------
-#enable_testing()
+enable_testing()
 
-#find_package(GTest REQUIRED)
+find_package(GTest REQUIRED)
 
-#add_executable(runTests
- #   tests/test_storage_engine.cpp
-  #  tests/test_checksum.cpp
-#)
+add_executable(runTests
+    tests/test_storage_engine.cpp
+    tests/test_checksum.cpp
+)
 
-#target_link_libraries(runTests
- #   PRIVATE
-  #  engine_lib
-   # GTest::gtest
-    #GTest::gtest_main
-#)
+target_link_libraries(runTests
+    PRIVATE
+    engine_lib
+    GTest::gtest
+    GTest::gtest_main
+)
 
-#include(GoogleTest)
-#gtest_discover_tests(runTests)
+include(GoogleTest)
+gtest_discover_tests(runTests)
 
 # ---------------- COVERAGE (MOVE HERE) ----------------
 if(ENABLE_COVERAGE)
     message(STATUS "Coverage enabled")
 
     # engine_lib
-    #target_compile_options(engine_lib PRIVATE --coverage -O0 -g)
-    #target_link_options(engine_lib PRIVATE --coverage)
+    target_compile_options(engine_lib PRIVATE --coverage -O0 -g)
+    target_link_options(engine_lib PRIVATE --coverage)
 
     # runTests
-    #target_compile_options(runTests PRIVATE --coverage -O0 -g)
-    #target_link_options(runTests PRIVATE --coverage)
+    target_compile_options(runTests PRIVATE --coverage -O0 -g)
+    target_link_options(runTests PRIVATE --coverage)
 
     # 🔥 FIX: engine also needs coverage
     target_compile_options(engine PRIVATE --coverage -O0 -g)
