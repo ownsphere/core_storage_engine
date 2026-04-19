@@ -31,8 +31,8 @@ TEST(ChecksumTest, EmptyData) {
 
     std::string hash = computeChecksum(data);
 
-    // Should not crash and should return a valid string
-    EXPECT_FALSE(hash.empty());
+    EXPECT_EQ(hash, "e3b0c44298fc1c149afbf4c8996fb924"
+                    "27ae41e4649b934ca495991b7852b855");
 }
 
 // Single character
@@ -42,6 +42,14 @@ TEST(ChecksumTest, SingleCharacter) {
     std::string hash = computeChecksum(data);
 
     EXPECT_FALSE(hash.empty());
+}
+
+TEST(ChecksumTest, MatchesKnownSha256Vector) {
+    std::vector<char> data = {'a', 'b', 'c'};
+
+    EXPECT_EQ(computeChecksum(data),
+              "ba7816bf8f01cfea414140de5dae2223"
+              "b00361a396177a9cb410ff61f20015ad");
 }
 
 // ================= STABILITY =================
