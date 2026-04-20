@@ -32,6 +32,7 @@ find_package(GTest REQUIRED)
 add_executable(runTests
     tests/test_storage_engine.cpp
     tests/test_checksum.cpp
+    tests/test_encryption.cpp
 )
 
 target_link_libraries(runTests

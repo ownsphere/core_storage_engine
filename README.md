@@ -25,7 +25,7 @@ This separation ensures:
 - File chunking (fixed-size chunks)
 - Metadata management
 - SHA-256 checksum-based data integrity
-- Basic encryption/decryption layer
+- AES-256 encryption/decryption layer
 - Atomic metadata writes (crash-safe)
 - Rollback on failure (prevents partial writes)
 - File reconstruction from chunks
@@ -85,7 +85,7 @@ This separation ensures:
 - Full thread-safe storage operations
 
 ### Security
-- Strong encryption (AES-256 planned)
+- External key management / secret rotation
 - Authentication / access control
 
 ### Scalability
