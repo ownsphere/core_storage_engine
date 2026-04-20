@@ -11,7 +11,6 @@ The project focuses on building core storage fundamentals such as chunking, data
 OwnSphere is designed with a layered architecture:
 
 - **C++ Core Engine** → Handles storage, chunking, and data integrity
-- **Go Agent Layer** → Provides API interface and communication
 
 This separation ensures:
 - High performance (C++)
