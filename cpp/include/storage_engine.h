@@ -10,6 +10,8 @@ using ProgressCallback = std::function<void(int)>;
 // ✅ ADD THIS
 class StorageEngine {
 public:
+    StorageEngine();
+
     bool storeFile(const std::string& filePath,
                    const std::string& fileId,
                    ProgressCallback progressCallback = nullptr);

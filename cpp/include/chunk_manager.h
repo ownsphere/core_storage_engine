@@ -6,4 +6,5 @@ class ChunkManager {
 public:
     bool writeChunk(const std::string& chunkId, const std::vector<char>& data);
     std::vector<char> readChunk(const std::string& chunkId);
+    bool deleteChunk(const std::string& chunkId);
 };

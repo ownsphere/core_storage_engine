@@ -2,10 +2,16 @@
 #include <fstream>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <thread>
 #include <vector>
 #include <algorithm>
 #include "storage_engine.h"
+#include "chunk_manager.h"
+#include "metadata_manager.h"
+#include "write_ahead_log.h"
+#include "checksum.h"
+#include "encryption.h"
 
 // ================= HELPERS =================
 
@@ -27,6 +33,10 @@ std::string uniqueId() {
 
 void cleanup(const std::string& path) {
     std::remove(path.c_str());
+}
+
+std::vector<char> toBytes(const std::string& value) {
+    return std::vector<char>(value.begin(), value.end());
 }
 
 // ================= BASIC TESTS =================
@@ -152,6 +162,7 @@ TEST(StorageEngineTest, ProgressCallbackWorks) {
 // 🔥 Missing chunk
 TEST(StorageEngineAdvancedTest, MissingChunkFailure) {
     StorageEngine engine;
+    MetadataManager metadataManager;
 
     std::string input = "corrupt.txt";
     std::string output = "corrupt_out.txt";
@@ -161,7 +172,10 @@ TEST(StorageEngineAdvancedTest, MissingChunkFailure) {
 
     ASSERT_TRUE(engine.storeFile(input, fileId));
 
-    std::string chunkPath = "data/chunks/" + fileId + "_chunk_0";
+    const auto chunks = metadataManager.loadChunks(fileId);
+    ASSERT_FALSE(chunks.empty());
+
+    std::string chunkPath = "data/chunks/" + chunks.front().id;
     std::remove(chunkPath.c_str());
 
     EXPECT_FALSE(engine.retrieveFile(fileId, output));
@@ -173,6 +187,7 @@ TEST(StorageEngineAdvancedTest, MissingChunkFailure) {
 // 🔥 Corruption
 TEST(StorageEngineAdvancedTest, ChecksumCorruption) {
     StorageEngine engine;
+    MetadataManager metadataManager;
 
     std::string input = "checksum.txt";
     std::string output = "checksum_out.txt";
@@ -182,7 +197,10 @@ TEST(StorageEngineAdvancedTest, ChecksumCorruption) {
 
     ASSERT_TRUE(engine.storeFile(input, fileId));
 
-    std::string chunkPath = "data/chunks/" + fileId + "_chunk_0";
+    const auto chunks = metadataManager.loadChunks(fileId);
+    ASSERT_FALSE(chunks.empty());
+
+    std::string chunkPath = "data/chunks/" + chunks.front().id;
     std::ofstream corrupt(chunkPath, std::ios::app);
     corrupt << "XXX";
     corrupt.close();
@@ -247,4 +265,84 @@ TEST(StorageEngineAdvancedTest, ConcurrentWrites) {
 
     auto files = engine.listFiles();
     EXPECT_GE(files.size(), 10);
+}
+
+TEST(StorageEngineRecoveryTest, PendingWalRollsBackNewChunks) {
+    StorageEngine engine;
+    MetadataManager metadataManager;
+    ChunkManager chunkManager;
+    WriteAheadLog wal;
+
+    std::string input = "pending_before.txt";
+    std::string output = "pending_after.txt";
+    std::string fileId = uniqueId();
+
+    createFile(input, "stable data");
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+
+    std::vector<std::string> oldChunkIds;
+    for (const auto& chunk : metadataManager.loadChunks(fileId)) {
+        oldChunkIds.push_back(chunk.id);
+    }
+
+    const std::string replacement = "new data that should be rolled back";
+    ChunkInfo newChunk;
+    newChunk.id = fileId + "_pending_chunk";
+    newChunk.checksum = computeChecksum(toBytes(replacement));
+
+    ASSERT_TRUE(wal.begin(fileId, replacement.size(), oldChunkIds));
+    ASSERT_TRUE(wal.appendChunk(fileId, newChunk));
+    ASSERT_TRUE(chunkManager.writeChunk(newChunk.id, encryptData(toBytes(replacement), "mysecretkey")));
+
+    StorageEngine recoveredEngine;
+
+    EXPECT_TRUE(recoveredEngine.retrieveFile(fileId, output));
+    EXPECT_EQ(readFile(output), "stable data");
+    EXPECT_FALSE(std::filesystem::exists("data/chunks/" + newChunk.id));
+    EXPECT_FALSE(std::filesystem::exists("data/wal/" + fileId + ".wal"));
+
+    cleanup(input);
+    cleanup(output);
+}
+
+TEST(StorageEngineRecoveryTest, ApplyingWalReplaysCommittedMetadata) {
+    StorageEngine engine;
+    MetadataManager metadataManager;
+    ChunkManager chunkManager;
+    WriteAheadLog wal;
+
+    std::string input = "applying_before.txt";
+    std::string output = "applying_after.txt";
+    std::string fileId = uniqueId();
+
+    createFile(input, "old version");
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+
+    std::vector<std::string> oldChunkIds;
+    for (const auto& chunk : metadataManager.loadChunks(fileId)) {
+        oldChunkIds.push_back(chunk.id);
+    }
+
+    const std::string replacement = "new version";
+    ChunkInfo newChunk;
+    newChunk.id = fileId + "_applying_chunk";
+    newChunk.checksum = computeChecksum(toBytes(replacement));
+
+    ASSERT_TRUE(wal.begin(fileId, replacement.size(), oldChunkIds));
+    ASSERT_TRUE(wal.appendChunk(fileId, newChunk));
+    ASSERT_TRUE(chunkManager.writeChunk(newChunk.id, encryptData(toBytes(replacement), "mysecretkey")));
+    ASSERT_TRUE(wal.markApplying(fileId));
+
+    StorageEngine recoveredEngine;
+
+    EXPECT_TRUE(recoveredEngine.retrieveFile(fileId, output));
+    EXPECT_EQ(readFile(output), replacement);
+    EXPECT_FALSE(std::filesystem::exists("data/wal/" + fileId + ".wal"));
+
+    for (const auto& chunkId : oldChunkIds) {
+        EXPECT_FALSE(std::filesystem::exists("data/chunks/" + chunkId));
+    }
+
+    cleanup(input);
+    cleanup(output);
 }
