@@ -7,6 +7,16 @@ option(ENABLE_COVERAGE "Enable coverage" ON)
 
 include_directories(include)
 
+if(NOT DEFINED OPENSSL_ROOT_DIR)
+    if(EXISTS "/opt/homebrew/opt/openssl@3")
+        set(OPENSSL_ROOT_DIR "/opt/homebrew/opt/openssl@3")
+    elseif(EXISTS "/usr/local/opt/openssl@3")
+        set(OPENSSL_ROOT_DIR "/usr/local/opt/openssl@3")
+    endif()
+endif()
+
+find_package(OpenSSL REQUIRED)
+
 # ---------------- CORE LIBRARY ----------------
 add_library(engine_lib
     src/engine/storage_engine.cpp
@@ -16,6 +26,8 @@ add_library(engine_lib
     src/crypto/encryption.cpp
     src/utils/logger.cpp
 )
+
+target_link_libraries(engine_lib PUBLIC OpenSSL::Crypto)
 
 # ---------------- MAIN EXECUTABLE ----------------
 add_executable(engine
@@ -32,6 +44,7 @@ find_package(GTest REQUIRED)
 add_executable(runTests
     tests/test_storage_engine.cpp
     tests/test_checksum.cpp
+    tests/test_encryption.cpp
 )
 
 target_link_libraries(runTests
