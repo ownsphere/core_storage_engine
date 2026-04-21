@@ -1,6 +1,7 @@
 # ---------------- BUILD FILES ----------------
 
 build/
+build-codex/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt

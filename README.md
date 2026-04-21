@@ -24,7 +24,7 @@ This separation ensures:
 ### Core Storage Engine (C++)
 - File chunking (fixed-size chunks)
 - Metadata management
-- Checksum-based data integrity
+- SHA-256 checksum-based data integrity
 - Basic encryption/decryption layer
 - Atomic metadata writes (crash-safe)
 - Rollback on failure (prevents partial writes)
@@ -58,7 +58,7 @@ This separation ensures:
 - Metadata consistency (atomic writes)
 - Failure detection:
   - Missing chunk
-  - Corrupted chunk
+  - Corrupted chunk via SHA-256 verification
 - Rollback on failure
 - Empty file handling
 - File overwrite handling
