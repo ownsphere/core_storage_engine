@@ -1,112 +1,104 @@
 # OwnSphere Core Storage Engine
 
-OwnSphere is a high-performance storage system built from scratch, inspired by modern object storage and NAS systems.
+OwnSphere is a storage-engine repository organized around a native C++ core and a Go service layer.
 
-The project focuses on building core storage fundamentals such as chunking, data integrity, and failure handling, with a long-term goal of evolving into a distributed storage system.
+## Repository Structure
 
----
+```text
+core_storage_engine/
+├── cpp/
+│   ├── src/
+│   ├── include/
+│   ├── tests/
+│   └── CMakeLists.txt
+├── go/
+│   ├── cmd/server/
+│   ├── internal/
+│   │   ├── api/
+│   │   ├── bridge/
+│   │   └── service/
+│   ├── pkg/client/
+│   └── go.mod
+└── scripts/
+├── build_cpp.sh
+    ├── generate_cpp_coverage.sh
+    └── run_server.sh
+```
 
-## Overview
+## Layout Notes
 
-OwnSphere is designed with a layered architecture:
+- `cpp/` contains the storage engine, headers, and tests.
+- `go/` is the service/API layer scaffold that will sit on top of the C++ core.
+- `scripts/` contains repo-level helper scripts so day-to-day commands stay consistent.
 
-- **C++ Core Engine** → Handles storage, chunking, and data integrity
+## C++ Engine
 
-This separation ensures:
-- High performance (C++)
-- Easy integration and scalability (Go)
+Current capabilities in the native engine:
 
----
-
-## Features
-
-### Core Storage Engine (C++)
-- File chunking (fixed-size chunks)
+- File chunking
 - Metadata management
-- SHA-256 checksum-based data integrity
-- AES-256 encryption/decryption layer
-- Atomic metadata writes (crash-safe)
-- Rollback on failure (prevents partial writes)
-- File reconstruction from chunks
-- File listing and deletion
-- Progress tracking
-
----
-
-### Testing & Quality
-- Unit testing using GoogleTest
-- Integration testing (store/retrieve/delete)
-- Failure testing (missing chunk, corruption)
-- Concurrency testing
-- Code coverage using gcov/lcov
-
----
-
-### Logging System
-- Structured logging
-- Log levels: INFO, ERROR, DEBUG
-- Console + file logging
-- Thread-safe logging
-
----
-
-## What is Handled
-
-- File storage and retrieval
-- Chunk-based storage architecture
-- Metadata consistency (atomic writes)
-- Failure detection:
-  - Missing chunk
-  - Corrupted chunk via SHA-256 verification
+- SHA-256 checksum validation
+- AES-256 encryption/decryption
+- Atomic metadata writes
 - Rollback on failure
-- Empty file handling
-- File overwrite handling
-- CLI-based interaction
-- API-based interaction (Go agent)
-- Logging and observability
-- Test coverage and validation
+- File reconstruction, listing, and deletion
+- Progress reporting
+- GoogleTest-based test coverage
 
----
+## Go Service Scaffold
 
-## Not Handled Yet
+The Go layer is now structured for:
 
-### Data Safety
-- Crash recovery system
-- Write-Ahead Logging (WAL)
-- Atomic chunk writes
+- `cmd/server/` for the executable entrypoint
+- `internal/api/` for handlers and transport logic
+- `internal/service/` for orchestration/business logic
+- `internal/bridge/` for integration with the native engine
+- `pkg/client/` for any external client SDK
 
-### Reliability
-- Data replication (RAID / multi-copy)
-- Garbage collection (orphan chunk cleanup)
-- Metadata corruption detection
+The current server is a lightweight scaffold so the directory layout is ready before the real API implementation lands.
 
-### Concurrency
-- Full thread-safe storage operations
+## Build and Run
 
-### Security
-- External key management / secret rotation
-- Authentication / access control
-
-### Scalability
-- Distributed storage (multi-node)
-- Sharding and load balancing
-
-### Observability
-- Metrics (latency, storage usage, failure rate)
-- Monitoring system
-
----
-
-## Setup & Installation
-
-### System Dependencies (Ubuntu)
+Build the C++ engine:
 
 ```bash
-sudo apt update
-sudo apt install -y \
-    build-essential \
-    cmake \
-    g++ \
-    git \
-    lcov \
-    gcovr
+./scripts/build_cpp.sh
+```
+
+Run the Go server scaffold:
+
+```bash
+./scripts/run_server.sh
+```
+
+Run C++ tests from the generated build directory:
+
+```bash
+cd cpp/build
+ctest --output-on-failure
+```
+
+Generate the C++ HTML coverage report:
+
+```bash
+./scripts/generate_cpp_coverage.sh
+```
+
+This writes:
+
+- `coverage.info`
+- `coverage-report/index.html`
+
+## Dependencies
+
+For the C++ layer you will need:
+
+- `cmake`
+- A C++17 compiler
+- OpenSSL development headers
+- GoogleTest
+- `lcov` and `genhtml` for HTML coverage reports
+
+For the Go layer you will need:
+
+- Go 1.22 or newer
