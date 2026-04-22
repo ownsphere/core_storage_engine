@@ -22,6 +22,7 @@ add_library(engine_lib
     src/engine/storage_engine.cpp
     src/storage/chunk_manager.cpp
     src/storage/metadata_manager.cpp
+    src/storage/write_ahead_log.cpp
     src/crypto/checksum.cpp
     src/crypto/encryption.cpp
     src/utils/logger.cpp

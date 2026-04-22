@@ -3,6 +3,42 @@
 #include <iostream>
 #include <sstream>
 #include <filesystem>
+#include <fcntl.h>
+#include <unistd.h>
+
+namespace {
+bool writeAndSyncFile(const std::string& path, const std::string& content) {
+    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        return false;
+    }
+
+    size_t totalWritten = 0;
+    while (totalWritten < content.size()) {
+        const ssize_t written = ::write(fd, content.data() + totalWritten, content.size() - totalWritten);
+        if (written < 0) {
+            ::close(fd);
+            return false;
+        }
+        totalWritten += static_cast<size_t>(written);
+    }
+
+    const bool ok = (::fsync(fd) == 0);
+    ::close(fd);
+    return ok;
+}
+
+bool fsyncDirectory(const std::string& path) {
+    const int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+
+    const bool ok = (::fsync(fd) == 0);
+    ::close(fd);
+    return ok;
+}
+}
 
 // ================= SAVE METADATA =================
 bool MetadataManager::saveMetadata(const std::string& fileId,
@@ -15,42 +51,28 @@ bool MetadataManager::saveMetadata(const std::string& fileId,
     std::string finalPath = dir + fileId + ".meta";
     std::string tempPath = finalPath + ".tmp";
 
-    // 1. Write to temp file
-    std::ofstream out(tempPath, std::ios::binary);
-    if (!out.is_open()) {
-        std::cerr << "ERROR: Cannot open temp metadata file\n";
-        return false;
-    }
-
-    // Format:
-    // first line → file size
-    // next lines → chunkId checksum
-    out << fileSize << "\n";
+    std::ostringstream content;
+    content << fileSize << "\n";
     for (const auto& chunk : chunks) {
-        out << chunk.id << " " << chunk.checksum << "\n";
+        content << chunk.id << " " << chunk.checksum << "\n";
     }
 
-    // 2. Flush and validate
-    out.flush();
-    if (!out.good()) {
+    if (!writeAndSyncFile(tempPath, content.str())) {
         std::cerr << "ERROR: Failed writing metadata\n";
-        out.close();
-        std::remove(tempPath.c_str());
+        std::filesystem::remove(tempPath);
         return false;
     }
-
-    out.close();
 
     // 3. Atomic rename
     try {
         std::filesystem::rename(tempPath, finalPath);
     } catch (const std::exception& e) {
         std::cerr << "ERROR: Atomic rename failed: " << e.what() << "\n";
-        std::remove(tempPath.c_str());
+        std::filesystem::remove(tempPath);
         return false;
     }
 
-    return true;
+    return fsyncDirectory(dir);
 }
 
 // ================= LOAD METADATA =================

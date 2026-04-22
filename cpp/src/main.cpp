@@ -38,10 +38,7 @@ int main() {
     LOG_INFO("Application started");
 
     StorageEngine engine;
-
-    // ✅ Cleanup temp metadata from previous crash
-    MetadataManager().cleanupTempFiles();
-    LOG_INFO("Temporary metadata cleanup completed");
+    LOG_INFO("Crash recovery completed");
 
     int choice;
 
