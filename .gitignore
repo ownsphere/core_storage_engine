@@ -2,6 +2,9 @@
 
 build/
 build-codex/
+cpp/build/
+cpp/build-codex/
+cpp/cmake-build-*/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt

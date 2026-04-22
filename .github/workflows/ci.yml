@@ -14,13 +14,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ---------------- INSTALL ----------------
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake g++ lcov libgtest-dev libssl-dev
 
-      # ---------------- BUILD GTEST ----------------
       - name: Build GTest
         run: |
           cd /usr/src/gtest
@@ -28,21 +26,8 @@ jobs:
           sudo make
           sudo cp lib/*.a /usr/lib
 
-      # ---------------- CONFIGURE ----------------
-      - name: Configure
-        run: cmake -S . -B build -DENABLE_COVERAGE=ON
-
-      # ---------------- BUILD ----------------
       - name: Build
-        run: cmake --build build --parallel
+        run: ./scripts/build_cpp.sh
 
-      # ---------------- TEST ----------------
-      - name: Run Tests
-        run: ctest --test-dir build --output-on-failure
-
-      # ---------------- COVERAGE ----------------
       - name: Generate Coverage
-        run: |
-          lcov --capture --directory build --output-file coverage.info --ignore-errors mismatch
-          lcov --remove coverage.info '/usr/*' --output-file coverage.info
-          lcov --list coverage.info
+        run: ./scripts/generate_cpp_coverage.sh
