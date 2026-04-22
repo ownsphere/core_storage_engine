@@ -25,6 +25,8 @@ struct WalEntry {
 
 class WriteAheadLog {
 public:
+    explicit WriteAheadLog(std::string storageRoot = "data");
+
     bool begin(const std::string& fileId,
                size_t fileSize,
                const std::vector<std::string>& oldChunkIds);
@@ -44,4 +46,6 @@ private:
     std::string walPath(const std::string& fileId) const;
     bool writeEntry(const WalEntry& entry);
     bool loadEntry(const std::string& path, WalEntry& entry) const;
+
+    std::string storageRoot_;
 };
