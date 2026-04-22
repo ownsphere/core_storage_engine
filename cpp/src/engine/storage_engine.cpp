@@ -135,6 +135,7 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
     int chunkIndex = 0;
     std::vector<ChunkInfo> chunkInfos;
     std::vector<std::string> oldChunkIds;
+    std::vector<std::string> attemptedChunkIds;
 
     for (const auto& chunk : metadataManager.loadChunks(fileId)) {
         oldChunkIds.push_back(chunk.id);
@@ -164,14 +165,24 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
         info.checksum = checksum;
 
         if (!wal.appendChunk(fileId, info)) {
+            for (const auto& attemptedChunkId : attemptedChunkIds) {
+                chunkManager.deleteChunk(attemptedChunkId);
+            }
+            wal.remove(fileId);
             LOG_ERROR("Failed to append chunk to WAL: " + chunkId);
             return false;
         }
+
+        attemptedChunkIds.push_back(chunkId);
 
         std::string key = "mysecretkey";
         std::vector<char> encryptedData = encryptData(buffer, key);
 
         if (!chunkManager.writeChunk(chunkId, encryptedData)) {
+            for (const auto& attemptedChunkId : attemptedChunkIds) {
+                chunkManager.deleteChunk(attemptedChunkId);
+            }
+            wal.remove(fileId);
             LOG_ERROR("Failed to write chunk: " + chunkId);
             return false;
         }
