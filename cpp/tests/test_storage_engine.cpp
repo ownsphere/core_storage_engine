@@ -6,6 +6,8 @@
 #include <thread>
 #include <vector>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include "storage_engine.h"
 #include "chunk_manager.h"
 #include "metadata_manager.h"
@@ -28,7 +30,10 @@ void createFile(const std::string& path, const std::string& content) {
 }
 
 std::string uniqueId() {
-    return "file_" + std::to_string(rand());
+    static std::atomic<unsigned long long> counter{0};
+    const auto timestamp = static_cast<unsigned long long>(
+        std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    return "file_" + std::to_string(timestamp) + "_" + std::to_string(counter.fetch_add(1));
 }
 
 void cleanup(const std::string& path) {
@@ -37,6 +42,29 @@ void cleanup(const std::string& path) {
 
 std::vector<char> toBytes(const std::string& value) {
     return std::vector<char>(value.begin(), value.end());
+}
+
+std::vector<std::string> chunkFilesFor(const std::string& fileId) {
+    std::vector<std::string> chunkFiles;
+    const std::string prefix = fileId + "_";
+    const std::filesystem::path chunkDir("data/chunks");
+
+    if (!std::filesystem::exists(chunkDir)) {
+        return chunkFiles;
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(chunkDir)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        const std::string name = entry.path().filename().string();
+        if (name.rfind(prefix, 0) == 0) {
+            chunkFiles.push_back(name);
+        }
+    }
+
+    return chunkFiles;
 }
 
 // ================= BASIC TESTS =================
@@ -265,6 +293,55 @@ TEST(StorageEngineAdvancedTest, ConcurrentWrites) {
 
     auto files = engine.listFiles();
     EXPECT_GE(files.size(), 10);
+}
+
+TEST(StorageEngineRecoveryTest, ChunkWriteFailureRollsBackAttemptedChunks) {
+    StorageEngine engine;
+
+    std::string input = "rollback_partial_failure.txt";
+    std::string fileId = uniqueId();
+    const std::string walPath = "data/wal/" + fileId + ".wal";
+    const std::filesystem::path chunkDir("data/chunks");
+
+    std::ofstream out(input, std::ios::binary);
+    out << std::string(5 * 1024 * 1024, 'R');
+    out.close();
+
+    std::filesystem::create_directories(chunkDir);
+    std::filesystem::permissions(
+        chunkDir,
+        std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+            std::filesystem::perms::group_exec | std::filesystem::perms::others_read |
+            std::filesystem::perms::others_exec,
+        std::filesystem::perm_options::replace);
+
+    bool injectedFailure = false;
+
+    auto cb = [&](int percent) {
+        if (percent >= 100 || injectedFailure) {
+            return;
+        }
+
+        const auto chunkFiles = chunkFilesFor(fileId);
+        ASSERT_EQ(chunkFiles.size(), 1u);
+
+        const std::string currentChunk = chunkFiles.front();
+        const std::string suffix = "_chunk_0";
+        ASSERT_NE(currentChunk.rfind(suffix), std::string::npos);
+
+        const std::string nextChunkPath = "data/chunks/" +
+            currentChunk.substr(0, currentChunk.size() - suffix.size()) + "_chunk_1";
+        std::filesystem::create_directories(nextChunkPath);
+        injectedFailure = true;
+    };
+
+    EXPECT_FALSE(engine.storeFile(input, fileId, cb));
+
+    EXPECT_TRUE(injectedFailure);
+    EXPECT_TRUE(chunkFilesFor(fileId).empty());
+    EXPECT_FALSE(std::filesystem::exists(walPath));
+
+    cleanup(input);
 }
 
 TEST(StorageEngineRecoveryTest, PendingWalRollsBackNewChunks) {
