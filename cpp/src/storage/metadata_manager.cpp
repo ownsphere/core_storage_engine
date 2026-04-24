@@ -40,16 +40,27 @@ bool fsyncDirectory(const std::string& path) {
 }
 }
 
+MetadataManager::MetadataManager(std::string storageRoot)
+    : storageRoot_(std::move(storageRoot)) {}
+
+std::string MetadataManager::metadataDir() const {
+    return (std::filesystem::path(storageRoot_) / "metadata").string();
+}
+
+std::string MetadataManager::metadataPath(const std::string& fileId) const {
+    return (std::filesystem::path(metadataDir()) / (fileId + ".meta")).string();
+}
+
 // ================= SAVE METADATA =================
 bool MetadataManager::saveMetadata(const std::string& fileId,
                                    const std::vector<ChunkInfo>& chunks,
                                    size_t fileSize)
 {
-    std::string dir = "data/metadata/";
+    const std::string dir = metadataDir();
     std::filesystem::create_directories(dir);
 
-    std::string finalPath = dir + fileId + ".meta";
-    std::string tempPath = finalPath + ".tmp";
+    const std::string finalPath = metadataPath(fileId);
+    const std::string tempPath = finalPath + ".tmp";
 
     std::ostringstream content;
     content << fileSize << "\n";
@@ -80,7 +91,7 @@ std::vector<ChunkInfo> MetadataManager::loadChunks(const std::string &fileId)
 {
     std::vector<ChunkInfo> chunks;
 
-    std::string path = "data/metadata/" + fileId + ".meta";
+    const std::string path = metadataPath(fileId);
     std::ifstream in(path);
 
     if (!in.is_open()) {
@@ -106,7 +117,7 @@ std::vector<ChunkInfo> MetadataManager::loadChunks(const std::string &fileId)
 // ================= CLEANUP TEMP FILES =================
 void MetadataManager::cleanupTempFiles()
 {
-    std::string dir = "data/metadata/";
+    const std::string dir = metadataDir();
 
     if (!std::filesystem::exists(dir)) return;
 

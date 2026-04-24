@@ -23,6 +23,14 @@ std::string createTransactionId() {
     const auto counter = transactionCounter.fetch_add(1);
     return std::to_string(timestamp) + "_" + std::to_string(counter);
 }
+
+std::string storageMetadataDir(const std::string& storageRoot) {
+    return (std::filesystem::path(storageRoot) / "metadata").string();
+}
+
+std::string storageMetadataPath(const std::string& storageRoot, const std::string& fileId) {
+    return (std::filesystem::path(storageMetadataDir(storageRoot)) / (fileId + ".meta")).string();
+}
 }
 
 std::string formatTime(std::chrono::system_clock::time_point tp) {
@@ -47,12 +55,21 @@ int StorageEngine::getProgress(const std::string& fileId) {
     return progressMap[fileId];
 }
 
-StorageEngine::StorageEngine() {
-    MetadataManager metadataManager;
-    ChunkManager chunkManager;
-    WriteAheadLog wal;
+StorageEngine::StorageEngine(std::string storageRoot)
+    : storageRoot_(std::move(storageRoot)) {
+    MetadataManager metadataManager(storageRoot_);
+    ChunkManager chunkManager(storageRoot_);
+    WriteAheadLog wal(storageRoot_);
     wal.recoverPending(metadataManager, chunkManager);
     metadataManager.cleanupTempFiles();
+}
+
+std::string StorageEngine::metadataPath(const std::string& fileId) const {
+    return storageMetadataPath(storageRoot_, fileId);
+}
+
+std::string StorageEngine::metadataDir() const {
+    return storageMetadataDir(storageRoot_);
 }
 
 // ======================= WRITE =======================
@@ -62,9 +79,9 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
     auto startTime = std::chrono::system_clock::now();
     auto startHighRes = std::chrono::high_resolution_clock::now();
 
-    ChunkManager chunkManager;
-    MetadataManager metadataManager;
-    WriteAheadLog wal;
+    ChunkManager chunkManager(storageRoot_);
+    MetadataManager metadataManager(storageRoot_);
+    WriteAheadLog wal(storageRoot_);
 
     std::ifstream in(filePath, std::ios::binary);
 
@@ -239,10 +256,10 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
 // ======================= READ =======================
 bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &outputPath, ProgressCallback progressCallback)
 {
-    ChunkManager chunkManager;
-    MetadataManager metadataManager;
+    ChunkManager chunkManager(storageRoot_);
+    MetadataManager metadataManager(storageRoot_);
 
-    std::string metaPath = "data/metadata/" + fileId + ".meta";
+    const std::string metaPath = metadataPath(fileId);
 
     if (!std::filesystem::exists(metaPath)) {
         LOG_ERROR("File does not exist: " + fileId);
@@ -316,8 +333,8 @@ bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &
 
 // ======================= DELETE =======================
 bool StorageEngine::deleteFile(const std::string& fileId) {
-    MetadataManager metadataManager;
-    ChunkManager chunkManager;
+    MetadataManager metadataManager(storageRoot_);
+    ChunkManager chunkManager(storageRoot_);
 
     std::vector<ChunkInfo> chunks = metadataManager.loadChunks(fileId);
 
@@ -327,7 +344,7 @@ bool StorageEngine::deleteFile(const std::string& fileId) {
         }
     }
 
-    std::string metaPath = "data/metadata/" + fileId + ".meta";
+    const std::string metaPath = metadataPath(fileId);
     std::remove(metaPath.c_str());
 
     LOG_INFO("Deleted file: " + fileId);
@@ -337,7 +354,7 @@ bool StorageEngine::deleteFile(const std::string& fileId) {
 // ======================= LIST =======================
 std::vector<std::string> StorageEngine::listFiles() {
     std::vector<std::string> files;
-    std::string path = "data/metadata/";
+    const std::string path = metadataDir();
 
     try {
         for (const auto& entry : std::filesystem::directory_iterator(path)) {

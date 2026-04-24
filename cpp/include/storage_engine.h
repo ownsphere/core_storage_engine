@@ -10,7 +10,7 @@ using ProgressCallback = std::function<void(int)>;
 // ✅ ADD THIS
 class StorageEngine {
 public:
-    StorageEngine();
+    explicit StorageEngine(std::string storageRoot = "data");
 
     bool storeFile(const std::string& filePath,
                    const std::string& fileId,
@@ -24,4 +24,10 @@ public:
     bool deleteFile(const std::string& fileId);
 
     int getProgress(const std::string& fileId);
+
+private:
+    std::string metadataPath(const std::string& fileId) const;
+    std::string metadataDir() const;
+
+    std::string storageRoot_;
 };

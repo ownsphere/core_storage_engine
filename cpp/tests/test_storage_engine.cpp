@@ -40,6 +40,10 @@ void cleanup(const std::string& path) {
     std::remove(path.c_str());
 }
 
+void cleanupDirectory(const std::string& path) {
+    std::filesystem::remove_all(path);
+}
+
 std::vector<char> toBytes(const std::string& value) {
     return std::vector<char>(value.begin(), value.end());
 }
@@ -65,6 +69,10 @@ std::vector<std::string> chunkFilesFor(const std::string& fileId) {
     }
 
     return chunkFiles;
+}
+
+std::string makeStorageRoot() {
+    return (std::filesystem::temp_directory_path() / uniqueId()).string();
 }
 
 // ================= BASIC TESTS =================
@@ -183,6 +191,28 @@ TEST(StorageEngineTest, ProgressCallbackWorks) {
     EXPECT_EQ(last, 100);
 
     cleanup(input);
+}
+
+TEST(StorageEngineTest, SupportsCustomStorageRoot) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    std::string input = "custom_root_input.txt";
+    std::string output = "custom_root_output.txt";
+    std::string fileId = uniqueId();
+
+    createFile(input, "stored outside default data path");
+
+    EXPECT_TRUE(engine.storeFile(input, fileId));
+    EXPECT_TRUE(engine.retrieveFile(fileId, output));
+    EXPECT_EQ(readFile(output), "stored outside default data path");
+    EXPECT_TRUE(std::filesystem::exists(metadataManager.metadataPath(fileId)));
+    EXPECT_FALSE(std::filesystem::exists("data/metadata/" + fileId + ".meta"));
+
+    cleanup(input);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
 }
 
 // ================= ADVANCED TESTS =================

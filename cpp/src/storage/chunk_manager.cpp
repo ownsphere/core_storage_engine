@@ -18,11 +18,18 @@ bool fsyncDirectory(const std::string& path) {
 }
 }
 
+ChunkManager::ChunkManager(std::string storageRoot)
+    : storageRoot_(std::move(storageRoot)) {}
+
+std::string ChunkManager::chunksDir() const {
+    return (std::filesystem::path(storageRoot_) / "chunks").string();
+}
+
 bool ChunkManager::writeChunk(const std::string& chunkId, const std::vector<char>& data) {
-    const std::string dir = "data/chunks";
+    const std::string dir = chunksDir();
     std::filesystem::create_directories(dir);
 
-    const std::string path = dir + "/" + chunkId;
+    const std::string path = (std::filesystem::path(dir) / chunkId).string();
     const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
         std::cerr << "ERROR: Cannot write chunk: " << chunkId << std::endl;
@@ -47,7 +54,7 @@ bool ChunkManager::writeChunk(const std::string& chunkId, const std::vector<char
 }
 
 std::vector<char> ChunkManager::readChunk(const std::string& chunkId) {
-    std::ifstream in("data/chunks/" + chunkId, std::ios::binary);
+    std::ifstream in((std::filesystem::path(chunksDir()) / chunkId).string(), std::ios::binary);
     if (!in.is_open()) {
         std::cerr << "ERROR: Cannot open chunk: " << chunkId << std::endl;
         return {};
@@ -58,11 +65,12 @@ std::vector<char> ChunkManager::readChunk(const std::string& chunkId) {
 }
 
 bool ChunkManager::deleteChunk(const std::string& chunkId) {
-    const std::string path = "data/chunks/" + chunkId;
+    const std::string dir = chunksDir();
+    const std::string path = (std::filesystem::path(dir) / chunkId).string();
     const bool removed = std::filesystem::remove(path) || !std::filesystem::exists(path);
     if (!removed) {
         return false;
     }
 
-    return fsyncDirectory("data/chunks");
+    return fsyncDirectory(dir);
 }

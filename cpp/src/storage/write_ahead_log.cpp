@@ -66,12 +66,15 @@ bool fsyncDirectory(const std::string& path) {
 }
 }  // namespace
 
+WriteAheadLog::WriteAheadLog(std::string storageRoot)
+    : storageRoot_(std::move(storageRoot)) {}
+
 std::string WriteAheadLog::walDir() const {
-    return "data/wal/";
+    return (std::filesystem::path(storageRoot_) / "wal").string();
 }
 
 std::string WriteAheadLog::walPath(const std::string& fileId) const {
-    return walDir() + fileId + ".wal";
+    return (std::filesystem::path(walDir()) / (fileId + ".wal")).string();
 }
 
 bool WriteAheadLog::begin(const std::string& fileId,
