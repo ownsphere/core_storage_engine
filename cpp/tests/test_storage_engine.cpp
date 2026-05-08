@@ -325,6 +325,66 @@ TEST(StorageEngineAdvancedTest, ConcurrentWrites) {
     EXPECT_GE(files.size(), 10);
 }
 
+TEST(StorageEngineAdvancedTest, ConcurrentWritesToSameFileIdAreSerialized) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string fileId = uniqueId();
+    const std::string input1 = "same_id_writer_one.txt";
+    const std::string input2 = "same_id_writer_two.txt";
+    const std::string output = "same_id_writer_out.txt";
+    const std::filesystem::path chunkDir = std::filesystem::path(storageRoot) / "chunks";
+    const std::string payload1(6 * 1024 * 1024, 'A');
+    const std::string payload2(6 * 1024 * 1024, 'B');
+
+    createFile(input1, payload1);
+    createFile(input2, payload2);
+
+    std::atomic<int> ready{0};
+
+    auto store = [&](const std::string& inputPath) {
+        ready.fetch_add(1);
+        while (ready.load() < 2) {
+            std::this_thread::yield();
+        }
+        EXPECT_TRUE(engine.storeFile(inputPath, fileId));
+    };
+
+    std::thread first(store, std::cref(input1));
+    std::thread second(store, std::cref(input2));
+
+    first.join();
+    second.join();
+
+    ASSERT_TRUE(engine.retrieveFile(fileId, output));
+
+    const std::string finalContent = readFile(output);
+    EXPECT_TRUE(finalContent == payload1 || finalContent == payload2);
+
+    const auto chunks = metadataManager.loadChunks(fileId);
+    ASSERT_FALSE(chunks.empty());
+    size_t chunkFileCount = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(chunkDir)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        const std::string name = entry.path().filename().string();
+        if (name.rfind(fileId + "_", 0) == 0) {
+            chunkFileCount++;
+        }
+    }
+    EXPECT_EQ(chunkFileCount, chunks.size());
+    EXPECT_FALSE(std::filesystem::exists(metadataManager.metadataPath(fileId) + ".tmp"));
+    EXPECT_FALSE(std::filesystem::exists(storageRoot + "/wal/" + fileId + ".wal.tmp"));
+
+    cleanup(input1);
+    cleanup(input2);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineRecoveryTest, ChunkWriteFailureRollsBackAttemptedChunks) {
     StorageEngine engine;
 

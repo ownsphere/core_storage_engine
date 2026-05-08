@@ -9,11 +9,14 @@
 #include <fstream>
 #include <filesystem>
 #include <unordered_map>
+#include <memory>
 #include <mutex>
 #include <atomic>
 
 static std::unordered_map<std::string, int> progressMap;
 static std::mutex progressMutex;
+static std::unordered_map<std::string, std::shared_ptr<std::mutex>> fileMutexes;
+static std::mutex fileMutexesGuard;
 static std::atomic<unsigned long long> transactionCounter{0};
 
 namespace {
@@ -30,6 +33,22 @@ std::string storageMetadataDir(const std::string& storageRoot) {
 
 std::string storageMetadataPath(const std::string& storageRoot, const std::string& fileId) {
     return (std::filesystem::path(storageMetadataDir(storageRoot)) / (fileId + ".meta")).string();
+}
+
+std::unique_lock<std::mutex> lockFileOperation(const std::string& storageRoot, const std::string& fileId) {
+    const std::string key = storageRoot + "::" + fileId;
+    std::shared_ptr<std::mutex> fileMutex;
+
+    {
+        std::lock_guard<std::mutex> guard(fileMutexesGuard);
+        auto& slot = fileMutexes[key];
+        if (!slot) {
+            slot = std::make_shared<std::mutex>();
+        }
+        fileMutex = slot;
+    }
+
+    return std::unique_lock<std::mutex>(*fileMutex);
 }
 }
 
@@ -74,6 +93,7 @@ std::string StorageEngine::metadataDir() const {
 
 // ======================= WRITE =======================
 bool StorageEngine::storeFile(const std::string &filePath, const std::string &fileId, ProgressCallback progressCallback){
+    auto fileLock = lockFileOperation(storageRoot_, fileId);
 
     // ✅ START TIME
     auto startTime = std::chrono::system_clock::now();
@@ -256,6 +276,8 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
 // ======================= READ =======================
 bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &outputPath, ProgressCallback progressCallback)
 {
+    auto fileLock = lockFileOperation(storageRoot_, fileId);
+
     ChunkManager chunkManager(storageRoot_);
     MetadataManager metadataManager(storageRoot_);
 
@@ -333,6 +355,8 @@ bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &
 
 // ======================= DELETE =======================
 bool StorageEngine::deleteFile(const std::string& fileId) {
+    auto fileLock = lockFileOperation(storageRoot_, fileId);
+
     MetadataManager metadataManager(storageRoot_);
     ChunkManager chunkManager(storageRoot_);
 
