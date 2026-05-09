@@ -280,15 +280,13 @@ bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &
 
     ChunkManager chunkManager(storageRoot_);
     MetadataManager metadataManager(storageRoot_);
-
-    const std::string metaPath = metadataPath(fileId);
-
-    if (!std::filesystem::exists(metaPath)) {
+    FileMetadata metadata;
+    if (!metadataManager.loadMetadata(fileId, metadata)) {
         LOG_ERROR("File does not exist: " + fileId);
         return false;
     }
 
-    auto chunks = metadataManager.loadChunks(fileId);
+    const auto& chunks = metadata.chunks;
 
     // ===== EMPTY FILE =====
     if (chunks.empty()) {
@@ -368,8 +366,7 @@ bool StorageEngine::deleteFile(const std::string& fileId) {
         }
     }
 
-    const std::string metaPath = metadataPath(fileId);
-    std::remove(metaPath.c_str());
+    metadataManager.deleteMetadata(fileId);
 
     LOG_INFO("Deleted file: " + fileId);
     return true;

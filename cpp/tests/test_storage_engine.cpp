@@ -215,6 +215,28 @@ TEST(StorageEngineTest, SupportsCustomStorageRoot) {
     cleanupDirectory(storageRoot);
 }
 
+TEST(StorageEngineTest, RetrieveUsesCachedMetadataWhenDiskMetadataIsMissing) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input = "cached_metadata_input.txt";
+    const std::string output = "cached_metadata_output.txt";
+    const std::string fileId = uniqueId();
+
+    createFile(input, "metadata cache keeps reads fast");
+
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+    ASSERT_TRUE(std::filesystem::remove(metadataManager.metadataPath(fileId)));
+
+    EXPECT_TRUE(engine.retrieveFile(fileId, output));
+    EXPECT_EQ(readFile(output), "metadata cache keeps reads fast");
+
+    cleanup(input);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
 // ================= ADVANCED TESTS =================
 
 // 🔥 Missing chunk

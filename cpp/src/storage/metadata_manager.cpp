@@ -4,9 +4,16 @@
 #include <sstream>
 #include <filesystem>
 #include <fcntl.h>
+#include <mutex>
+#include <unordered_map>
 #include <unistd.h>
 
 namespace {
+using MetadataCacheKey = std::string;
+
+std::mutex metadataCacheMutex;
+std::unordered_map<MetadataCacheKey, FileMetadata> metadataCache;
+
 bool writeAndSyncFile(const std::string& path, const std::string& content) {
     const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
@@ -37,6 +44,10 @@ bool fsyncDirectory(const std::string& path) {
     const bool ok = (::fsync(fd) == 0);
     ::close(fd);
     return ok;
+}
+
+MetadataCacheKey cacheKeyFor(const std::string& storageRoot, const std::string& fileId) {
+    return storageRoot + "::" + fileId;
 }
 }
 
@@ -83,24 +94,42 @@ bool MetadataManager::saveMetadata(const std::string& fileId,
         return false;
     }
 
-    return fsyncDirectory(dir);
+    if (!fsyncDirectory(dir)) {
+        return false;
+    }
+
+    FileMetadata metadata;
+    metadata.fileSize = fileSize;
+    metadata.chunks = chunks;
+
+    std::lock_guard<std::mutex> lock(metadataCacheMutex);
+    metadataCache[cacheKeyFor(storageRoot_, fileId)] = std::move(metadata);
+    return true;
 }
 
 // ================= LOAD METADATA =================
-std::vector<ChunkInfo> MetadataManager::loadChunks(const std::string &fileId)
+bool MetadataManager::loadMetadata(const std::string& fileId, FileMetadata& metadata)
 {
-    std::vector<ChunkInfo> chunks;
+    const MetadataCacheKey key = cacheKeyFor(storageRoot_, fileId);
+    {
+        std::lock_guard<std::mutex> lock(metadataCacheMutex);
+        auto it = metadataCache.find(key);
+        if (it != metadataCache.end()) {
+            metadata = it->second;
+            return true;
+        }
+    }
 
     const std::string path = metadataPath(fileId);
     std::ifstream in(path);
 
     if (!in.is_open()) {
         std::cerr << "ERROR: Cannot open metadata for file: " << fileId << std::endl;
-        return chunks;
+        return false;
     }
 
-    size_t fileSize;
-    in >> fileSize; // first line
+    FileMetadata loadedMetadata;
+    in >> loadedMetadata.fileSize; // first line
 
     std::string chunkId, checksum;
 
@@ -108,10 +137,42 @@ std::vector<ChunkInfo> MetadataManager::loadChunks(const std::string &fileId)
         ChunkInfo info;
         info.id = chunkId;
         info.checksum = checksum;
-        chunks.push_back(info);
+        loadedMetadata.chunks.push_back(info);
     }
 
-    return chunks;
+    {
+        std::lock_guard<std::mutex> lock(metadataCacheMutex);
+        metadataCache[key] = loadedMetadata;
+    }
+
+    metadata = std::move(loadedMetadata);
+    return true;
+}
+
+std::vector<ChunkInfo> MetadataManager::loadChunks(const std::string &fileId)
+{
+    FileMetadata metadata;
+    if (!loadMetadata(fileId, metadata)) {
+        return {};
+    }
+
+    return metadata.chunks;
+}
+
+bool MetadataManager::deleteMetadata(const std::string& fileId)
+{
+    const std::string path = metadataPath(fileId);
+
+    std::error_code ec;
+    const bool removed = std::filesystem::remove(path, ec);
+
+    if (ec) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(metadataCacheMutex);
+    metadataCache.erase(cacheKeyFor(storageRoot_, fileId));
+    return removed;
 }
 
 // ================= CLEANUP TEMP FILES =================
