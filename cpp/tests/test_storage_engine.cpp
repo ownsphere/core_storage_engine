@@ -128,6 +128,40 @@ TEST(StorageEngineTest, DeleteFile) {
     cleanup(output);
 }
 
+TEST(StorageEngineTest, DeleteFileReturnsFalseWhenChunkDeletionFails) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input = "delete_failure.txt";
+    const std::string fileId = uniqueId();
+    const std::filesystem::path chunkDir = std::filesystem::path(storageRoot) / "chunks";
+
+    createFile(input, "delete failure");
+
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+    ASSERT_FALSE(metadataManager.loadChunks(fileId).empty());
+
+    std::filesystem::permissions(
+        chunkDir,
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec |
+            std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
+            std::filesystem::perms::others_read | std::filesystem::perms::others_exec,
+        std::filesystem::perm_options::replace);
+
+    EXPECT_FALSE(engine.deleteFile(fileId));
+
+    std::filesystem::permissions(
+        chunkDir,
+        std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+            std::filesystem::perms::group_exec | std::filesystem::perms::others_read |
+            std::filesystem::perms::others_exec,
+        std::filesystem::perm_options::replace);
+
+    cleanup(input);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineTest, InvalidInputFile) {
     StorageEngine engine;
     EXPECT_FALSE(engine.storeFile("invalid.txt", uniqueId()));

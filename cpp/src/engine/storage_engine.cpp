@@ -359,14 +359,26 @@ bool StorageEngine::deleteFile(const std::string& fileId) {
     ChunkManager chunkManager(storageRoot_);
 
     std::vector<ChunkInfo> chunks = metadataManager.loadChunks(fileId);
+    bool success = true;
 
     if (!chunks.empty()) {
         for (const auto& chunk : chunks) {
-            chunkManager.deleteChunk(chunk.id);
+            if (!chunkManager.deleteChunk(chunk.id)) {
+                LOG_ERROR("Failed to delete chunk: " + chunk.id);
+                success = false;
+            }
         }
     }
 
-    metadataManager.deleteMetadata(fileId);
+    if (!metadataManager.deleteMetadata(fileId)) {
+        LOG_ERROR("Failed to delete metadata for file: " + fileId);
+        success = false;
+    }
+
+    if (!success) {
+        LOG_ERROR("Delete request failed for file: " + fileId);
+        return false;
+    }
 
     LOG_INFO("Deleted file: " + fileId);
     return true;

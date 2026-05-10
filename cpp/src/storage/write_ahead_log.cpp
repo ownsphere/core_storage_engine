@@ -120,8 +120,22 @@ bool WriteAheadLog::markCommitted(const std::string& fileId) {
 }
 
 bool WriteAheadLog::remove(const std::string& fileId) {
-    const bool removed =
-        std::filesystem::remove(walPath(fileId)) || !std::filesystem::exists(walPath(fileId));
+    std::error_code removeError;
+    const bool removed = std::filesystem::remove(walPath(fileId), removeError);
+    if (removeError) {
+        return false;
+    }
+
+    std::error_code existsError;
+    const bool stillExists = std::filesystem::exists(walPath(fileId), existsError);
+    if (existsError) {
+        return false;
+    }
+
+    if (!removed && !stillExists) {
+        return true;
+    }
+
     if (!removed) {
         return false;
     }

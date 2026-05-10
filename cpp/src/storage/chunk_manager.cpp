@@ -67,7 +67,23 @@ std::vector<char> ChunkManager::readChunk(const std::string& chunkId) {
 bool ChunkManager::deleteChunk(const std::string& chunkId) {
     const std::string dir = chunksDir();
     const std::string path = (std::filesystem::path(dir) / chunkId).string();
-    const bool removed = std::filesystem::remove(path) || !std::filesystem::exists(path);
+
+    std::error_code removeError;
+    const bool removed = std::filesystem::remove(path, removeError);
+    if (removeError) {
+        return false;
+    }
+
+    std::error_code existsError;
+    const bool stillExists = std::filesystem::exists(path, existsError);
+    if (existsError) {
+        return false;
+    }
+
+    if (!removed && !stillExists) {
+        return true;
+    }
+
     if (!removed) {
         return false;
     }
