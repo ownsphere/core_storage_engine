@@ -84,3 +84,14 @@ TEST(ChecksumTest, BinaryData) {
 
     EXPECT_FALSE(hash.empty());
 }
+
+TEST(ChecksumTest, IncrementalUpdatesMatchOneShotHash) {
+    std::vector<char> data(8192, 'Z');
+
+    ChecksumState checksum;
+    checksum.update(data.data(), 3000);
+    checksum.update(data.data() + 3000, 2000);
+    checksum.update(data.data() + 5000, data.size() - 5000);
+
+    EXPECT_EQ(checksum.finalize(), computeChecksum(data));
+}

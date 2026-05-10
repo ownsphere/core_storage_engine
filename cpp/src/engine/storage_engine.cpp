@@ -314,26 +314,34 @@ bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &
         return false;
     }
 
+    const auto failRetrieve = [&](const std::string& message) {
+        LOG_ERROR(message);
+        out.close();
+        std::error_code removeError;
+        std::filesystem::remove(outputPath, removeError);
+        return false;
+    };
+
     int totalChunks = chunks.size();
     int processedChunks = 0;
 
     for (const auto& chunk : chunks) {
         std::string key = "mysecretkey";
-
-        auto encryptedData = chunkManager.readChunk(chunk.id);
-        if (encryptedData.empty()) {
-            LOG_ERROR("Missing chunk: " + chunk.id);
-            return false;
+        std::ifstream chunkStream(
+            (std::filesystem::path(chunkManager.chunksDir()) / chunk.id).string(),
+            std::ios::binary);
+        if (!chunkStream.is_open()) {
+            return failRetrieve("Missing chunk: " + chunk.id);
         }
 
-        auto data = decryptData(encryptedData, key);
-
-        if (computeChecksum(data) != chunk.checksum) {
-            LOG_ERROR("Data corruption in chunk: " + chunk.id);
-            return false;
+        ChecksumState checksum;
+        if (!decryptStream(chunkStream, out, key, &checksum)) {
+            return failRetrieve("Cannot stream chunk: " + chunk.id);
         }
 
-        out.write(data.data(), data.size());
+        if (checksum.finalize() != chunk.checksum) {
+            return failRetrieve("Data corruption in chunk: " + chunk.id);
+        }
 
         processedChunks++;
         int percent = (processedChunks * 100) / totalChunks;
@@ -347,6 +355,7 @@ bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &
         LOG_DEBUG("Read chunk: " + chunk.id);
     }
 
+    out.close();
     LOG_INFO("File reconstructed: " + outputPath);
     return true;
 }

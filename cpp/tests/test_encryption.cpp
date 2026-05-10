@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <sstream>
 #include <vector>
 #include <string>
 
@@ -46,4 +47,18 @@ TEST(EncryptionTest, WrongKeyDoesNotRestorePlaintext) {
     const auto decrypted = decryptData(encrypted, wrongKey);
 
     EXPECT_NE(decrypted, plaintext);
+}
+
+TEST(EncryptionTest, StreamDecryptRestoresOriginalPlaintextAndChecksum) {
+    const std::vector<char> plaintext(70000, 'Q');
+    const std::string key = "mysecretkey";
+    const auto encrypted = encryptData(plaintext, key);
+
+    std::istringstream input(std::string(encrypted.begin(), encrypted.end()), std::ios::binary);
+    std::ostringstream output(std::ios::binary);
+    ChecksumState checksum;
+
+    ASSERT_TRUE(decryptStream(input, output, key, &checksum));
+    EXPECT_EQ(output.str(), std::string(plaintext.begin(), plaintext.end()));
+    EXPECT_EQ(checksum.finalize(), computeChecksum(plaintext));
 }
