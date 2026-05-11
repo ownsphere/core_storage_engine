@@ -271,6 +271,38 @@ TEST(StorageEngineTest, RetrieveUsesCachedMetadataWhenDiskMetadataIsMissing) {
     cleanupDirectory(storageRoot);
 }
 
+TEST(StorageEngineTest, StartupGarbageCollectionRemovesOrphanedChunks) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+    ChunkManager chunkManager(storageRoot);
+
+    const std::string input = "gc_orphan_input.txt";
+    const std::string output = "gc_orphan_output.txt";
+    const std::string fileId = uniqueId();
+    const std::string orphanChunkId = fileId + "_orphan_chunk";
+
+    createFile(input, "live data must survive cleanup");
+
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+    const auto liveChunks = metadataManager.loadChunks(fileId);
+    ASSERT_FALSE(liveChunks.empty());
+
+    ASSERT_TRUE(chunkManager.writeChunk(orphanChunkId, encryptData(toBytes("orphan"), "mysecretkey")));
+    ASSERT_TRUE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / orphanChunkId));
+
+    StorageEngine recoveredEngine(storageRoot);
+
+    EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / orphanChunkId));
+    EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / liveChunks.front().id));
+    EXPECT_TRUE(recoveredEngine.retrieveFile(fileId, output));
+    EXPECT_EQ(readFile(output), "live data must survive cleanup");
+
+    cleanup(input);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
 // ================= ADVANCED TESTS =================
 
 // 🔥 Missing chunk

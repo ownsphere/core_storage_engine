@@ -9,6 +9,7 @@
 #include <fstream>
 #include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <mutex>
 #include <atomic>
@@ -50,6 +51,53 @@ std::unique_lock<std::mutex> lockFileOperation(const std::string& storageRoot, c
 
     return std::unique_lock<std::mutex>(*fileMutex);
 }
+
+void collectGarbageChunks(const std::string& storageRoot) {
+    MetadataManager metadataManager(storageRoot);
+    ChunkManager chunkManager(storageRoot);
+
+    const std::filesystem::path metadataDir = metadataManager.metadataDir();
+    const std::filesystem::path chunksDir = chunkManager.chunksDir();
+
+    if (!std::filesystem::exists(chunksDir)) {
+        return;
+    }
+
+    std::unordered_set<std::string> liveChunkIds;
+
+    if (std::filesystem::exists(metadataDir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(metadataDir)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
+                continue;
+            }
+
+            const std::string fileId = entry.path().stem().string();
+            FileMetadata metadata;
+            if (!metadataManager.loadMetadata(fileId, metadata)) {
+                continue;
+            }
+
+            for (const auto& chunk : metadata.chunks) {
+                liveChunkIds.insert(chunk.id);
+            }
+        }
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(chunksDir)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        const std::string chunkId = entry.path().filename().string();
+        if (liveChunkIds.find(chunkId) != liveChunkIds.end()) {
+            continue;
+        }
+
+        if (!chunkManager.deleteChunk(chunkId)) {
+            LOG_ERROR("Failed to garbage-collect chunk: " + chunkId);
+        }
+    }
+}
 }
 
 std::string formatTime(std::chrono::system_clock::time_point tp) {
@@ -81,6 +129,7 @@ StorageEngine::StorageEngine(std::string storageRoot)
     WriteAheadLog wal(storageRoot_);
     wal.recoverPending(metadataManager, chunkManager);
     metadataManager.cleanupTempFiles();
+    collectGarbageChunks(storageRoot_);
 }
 
 std::string StorageEngine::metadataPath(const std::string& fileId) const {
