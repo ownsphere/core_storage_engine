@@ -181,10 +181,6 @@ bool WriteAheadLog::recoverPending(MetadataManager& metadataManager,
             }
         }
 
-        for (const auto& chunkId : entry.oldChunkIds) {
-            chunkManager.deleteChunk(chunkId);
-        }
-
         if (!remove(entry.fileId)) {
             allRecovered = false;
         }

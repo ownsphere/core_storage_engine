@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <atomic>
+#include <set>
 
 static std::unordered_map<std::string, int> progressMap;
 static std::mutex progressMutex;
@@ -72,13 +73,10 @@ void collectGarbageChunks(const std::string& storageRoot) {
             }
 
             const std::string fileId = entry.path().stem().string();
-            FileMetadata metadata;
-            if (!metadataManager.loadMetadata(fileId, metadata)) {
-                continue;
-            }
-
-            for (const auto& chunk : metadata.chunks) {
-                liveChunkIds.insert(chunk.id);
+            for (const auto& metadata : metadataManager.listMetadataVersions(fileId)) {
+                for (const auto& chunk : metadata.chunks) {
+                    liveChunkIds.insert(chunk.id);
+                }
             }
         }
     }
@@ -192,9 +190,6 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
             return false;
         }
 
-        for (const auto& chunkId : oldChunkIds) {
-            chunkManager.deleteChunk(chunkId);
-        }
         wal.remove(fileId);
 
         updateProgress(fileId, 100);
@@ -297,9 +292,6 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
         return false;
     }
 
-    for (const auto& chunkId : oldChunkIds) {
-        chunkManager.deleteChunk(chunkId);
-    }
     wal.remove(fileId);
 
     updateProgress(fileId, 100);
@@ -416,13 +408,18 @@ bool StorageEngine::deleteFile(const std::string& fileId) {
     MetadataManager metadataManager(storageRoot_);
     ChunkManager chunkManager(storageRoot_);
 
-    std::vector<ChunkInfo> chunks = metadataManager.loadChunks(fileId);
+    std::set<std::string> chunkIds;
+    for (const auto& metadata : metadataManager.listMetadataVersions(fileId)) {
+        for (const auto& chunk : metadata.chunks) {
+            chunkIds.insert(chunk.id);
+        }
+    }
     bool success = true;
 
-    if (!chunks.empty()) {
-        for (const auto& chunk : chunks) {
-            if (!chunkManager.deleteChunk(chunk.id)) {
-                LOG_ERROR("Failed to delete chunk: " + chunk.id);
+    if (!chunkIds.empty()) {
+        for (const auto& chunkId : chunkIds) {
+            if (!chunkManager.deleteChunk(chunkId)) {
+                LOG_ERROR("Failed to delete chunk: " + chunkId);
                 success = false;
             }
         }
@@ -449,6 +446,10 @@ std::vector<std::string> StorageEngine::listFiles() {
 
     try {
         for (const auto& entry : std::filesystem::directory_iterator(path)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
+                continue;
+            }
+
             std::string filename = entry.path().filename().string();
 
             if (filename.size() > 5) {

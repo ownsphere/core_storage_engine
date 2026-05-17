@@ -209,6 +209,46 @@ TEST(StorageEngineTest, OverwriteSameFileId) {
     cleanup(output);
 }
 
+TEST(StorageEngineTest, OverwriteTracksMetadataVersions) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input1 = "versioned_file_one.txt";
+    const std::string input2 = "versioned_file_two.txt";
+    const std::string fileId = uniqueId();
+
+    createFile(input1, "First");
+    createFile(input2, "Second");
+
+    ASSERT_TRUE(engine.storeFile(input1, fileId));
+    FileMetadata firstMetadata;
+    ASSERT_TRUE(metadataManager.loadMetadata(fileId, firstMetadata));
+    ASSERT_FALSE(firstMetadata.versionId.empty());
+    EXPECT_TRUE(firstMetadata.previousVersionId.empty());
+
+    ASSERT_TRUE(engine.storeFile(input2, fileId));
+    FileMetadata latestMetadata;
+    ASSERT_TRUE(metadataManager.loadMetadata(fileId, latestMetadata));
+    ASSERT_FALSE(latestMetadata.versionId.empty());
+    EXPECT_EQ(latestMetadata.previousVersionId, firstMetadata.versionId);
+
+    const auto versions = metadataManager.listMetadataVersions(fileId);
+    ASSERT_EQ(versions.size(), 2u);
+    EXPECT_EQ(versions[0].fileSize, std::string("Second").size());
+    EXPECT_EQ(versions[1].fileSize, std::string("First").size());
+
+    FileMetadata historicMetadata;
+    ASSERT_TRUE(metadataManager.loadMetadataVersion(fileId, firstMetadata.versionId, historicMetadata));
+    EXPECT_EQ(historicMetadata.fileSize, std::string("First").size());
+    ASSERT_EQ(historicMetadata.chunks.size(), 1u);
+    EXPECT_EQ(historicMetadata.chunks.front().id, firstMetadata.chunks.front().id);
+
+    cleanup(input1);
+    cleanup(input2);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineTest, ProgressCallbackWorks) {
     StorageEngine engine;
 
@@ -463,7 +503,7 @@ TEST(StorageEngineAdvancedTest, ConcurrentWritesToSameFileIdAreSerialized) {
             chunkFileCount++;
         }
     }
-    EXPECT_EQ(chunkFileCount, chunks.size());
+    EXPECT_GE(chunkFileCount, chunks.size());
     EXPECT_FALSE(std::filesystem::exists(metadataManager.metadataPath(fileId) + ".tmp"));
     EXPECT_FALSE(std::filesystem::exists(storageRoot + "/wal/" + fileId + ".wal.tmp"));
 
@@ -595,7 +635,7 @@ TEST(StorageEngineRecoveryTest, ApplyingWalReplaysCommittedMetadata) {
     EXPECT_FALSE(std::filesystem::exists("data/wal/" + fileId + ".wal"));
 
     for (const auto& chunkId : oldChunkIds) {
-        EXPECT_FALSE(std::filesystem::exists("data/chunks/" + chunkId));
+        EXPECT_TRUE(std::filesystem::exists("data/chunks/" + chunkId));
     }
 
     cleanup(input);
