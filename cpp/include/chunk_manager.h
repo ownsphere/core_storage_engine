@@ -6,7 +6,9 @@ class ChunkManager {
 public:
     explicit ChunkManager(std::string storageRoot = "data");
 
-    bool writeChunk(const std::string& chunkId, const std::vector<char>& data);
+    bool writeChunk(const std::string& chunkId,
+                    const std::vector<char>& data,
+                    bool* created = nullptr);
     std::vector<char> readChunk(const std::string& chunkId);
     bool deleteChunk(const std::string& chunkId);
 

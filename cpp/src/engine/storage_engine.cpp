@@ -19,22 +19,53 @@ static std::unordered_map<std::string, int> progressMap;
 static std::mutex progressMutex;
 static std::unordered_map<std::string, std::shared_ptr<std::mutex>> fileMutexes;
 static std::mutex fileMutexesGuard;
-static std::atomic<unsigned long long> transactionCounter{0};
-
 namespace {
-std::string createTransactionId() {
-    const auto timestamp = static_cast<unsigned long long>(
-        std::chrono::high_resolution_clock::now().time_since_epoch().count());
-    const auto counter = transactionCounter.fetch_add(1);
-    return std::to_string(timestamp) + "_" + std::to_string(counter);
-}
-
 std::string storageMetadataDir(const std::string& storageRoot) {
     return (std::filesystem::path(storageRoot) / "metadata").string();
 }
 
 std::string storageMetadataPath(const std::string& storageRoot, const std::string& fileId) {
     return (std::filesystem::path(storageMetadataDir(storageRoot)) / (fileId + ".meta")).string();
+}
+
+std::unordered_set<std::string> collectReferencedChunkIds(const std::string& storageRoot,
+                                                          const std::string& excludedMetadataFileId = "",
+                                                          const std::string& excludedWalFileId = "") {
+    std::unordered_set<std::string> referencedChunkIds;
+    MetadataManager metadataManager(storageRoot);
+    WriteAheadLog wal(storageRoot);
+    const std::filesystem::path metadataDir = metadataManager.metadataDir();
+
+    if (std::filesystem::exists(metadataDir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(metadataDir)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
+                continue;
+            }
+
+            const std::string fileId = entry.path().stem().string();
+            if (!excludedMetadataFileId.empty() && fileId == excludedMetadataFileId) {
+                continue;
+            }
+
+            for (const auto& metadata : metadataManager.listMetadataVersions(fileId)) {
+                for (const auto& chunk : metadata.chunks) {
+                    referencedChunkIds.insert(chunk.id);
+                }
+            }
+        }
+    }
+
+    for (const auto& entry : wal.listEntries()) {
+        if (!excludedWalFileId.empty() && entry.fileId == excludedWalFileId) {
+            continue;
+        }
+
+        for (const auto& chunk : entry.newChunks) {
+            referencedChunkIds.insert(chunk.id);
+        }
+    }
+
+    return referencedChunkIds;
 }
 
 std::unique_lock<std::mutex> lockFileOperation(const std::string& storageRoot, const std::string& fileId) {
@@ -65,21 +96,7 @@ void collectGarbageChunks(const std::string& storageRoot) {
     }
 
     std::unordered_set<std::string> liveChunkIds;
-
-    if (std::filesystem::exists(metadataDir)) {
-        for (const auto& entry : std::filesystem::directory_iterator(metadataDir)) {
-            if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
-                continue;
-            }
-
-            const std::string fileId = entry.path().stem().string();
-            for (const auto& metadata : metadataManager.listMetadataVersions(fileId)) {
-                for (const auto& chunk : metadata.chunks) {
-                    liveChunkIds.insert(chunk.id);
-                }
-            }
-        }
-    }
+    liveChunkIds = collectReferencedChunkIds(storageRoot);
 
     for (const auto& entry : std::filesystem::directory_iterator(chunksDir)) {
         if (!entry.is_regular_file()) {
@@ -210,13 +227,11 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
     }
 
     const size_t CHUNK_SIZE = 4 * 1024 * 1024;
-    const std::string transactionId = createTransactionId();
 
     size_t processed = 0;
-    int chunkIndex = 0;
     std::vector<ChunkInfo> chunkInfos;
     std::vector<std::string> oldChunkIds;
-    std::vector<std::string> attemptedChunkIds;
+    std::vector<std::string> attemptedCreatedChunkIds;
 
     for (const auto& chunk : metadataManager.loadChunks(fileId)) {
         oldChunkIds.push_back(chunk.id);
@@ -237,35 +252,43 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
 
         buffer.resize(bytesRead);
 
-        std::string chunkId = fileId + "_" + transactionId + "_chunk_" + std::to_string(chunkIndex++);
-
         std::string checksum = computeChecksum(buffer);
+        std::string chunkId = checksum;
 
         ChunkInfo info;
         info.id = chunkId;
         info.checksum = checksum;
 
         if (!wal.appendChunk(fileId, info)) {
-            for (const auto& attemptedChunkId : attemptedChunkIds) {
-                chunkManager.deleteChunk(attemptedChunkId);
+            const auto referencedChunkIds = collectReferencedChunkIds(storageRoot_, "", fileId);
+            for (const auto& attemptedChunkId : attemptedCreatedChunkIds) {
+                if (referencedChunkIds.find(attemptedChunkId) == referencedChunkIds.end()) {
+                    chunkManager.deleteChunk(attemptedChunkId);
+                }
             }
             wal.remove(fileId);
             LOG_ERROR("Failed to append chunk to WAL: " + chunkId);
             return false;
         }
 
-        attemptedChunkIds.push_back(chunkId);
-
         std::string key = "mysecretkey";
         std::vector<char> encryptedData = encryptData(buffer, key);
 
-        if (!chunkManager.writeChunk(chunkId, encryptedData)) {
-            for (const auto& attemptedChunkId : attemptedChunkIds) {
-                chunkManager.deleteChunk(attemptedChunkId);
+        bool createdChunk = false;
+        if (!chunkManager.writeChunk(chunkId, encryptedData, &createdChunk)) {
+            const auto referencedChunkIds = collectReferencedChunkIds(storageRoot_, "", fileId);
+            for (const auto& attemptedChunkId : attemptedCreatedChunkIds) {
+                if (referencedChunkIds.find(attemptedChunkId) == referencedChunkIds.end()) {
+                    chunkManager.deleteChunk(attemptedChunkId);
+                }
             }
             wal.remove(fileId);
             LOG_ERROR("Failed to write chunk: " + chunkId);
             return false;
+        }
+
+        if (createdChunk) {
+            attemptedCreatedChunkIds.push_back(chunkId);
         }
 
         chunkInfos.push_back(info);
@@ -414,20 +437,24 @@ bool StorageEngine::deleteFile(const std::string& fileId) {
             chunkIds.insert(chunk.id);
         }
     }
-    bool success = true;
+    const auto referencedByOtherFilesOrWal = collectReferencedChunkIds(storageRoot_, fileId, fileId);
+    bool success = metadataManager.deleteMetadata(fileId);
 
-    if (!chunkIds.empty()) {
-        for (const auto& chunkId : chunkIds) {
-            if (!chunkManager.deleteChunk(chunkId)) {
-                LOG_ERROR("Failed to delete chunk: " + chunkId);
-                success = false;
-            }
-        }
+    if (!success) {
+        LOG_ERROR("Failed to delete metadata for file: " + fileId);
+        LOG_ERROR("Delete request failed for file: " + fileId);
+        return false;
     }
 
-    if (!metadataManager.deleteMetadata(fileId)) {
-        LOG_ERROR("Failed to delete metadata for file: " + fileId);
-        success = false;
+    for (const auto& chunkId : chunkIds) {
+        if (referencedByOtherFilesOrWal.find(chunkId) != referencedByOtherFilesOrWal.end()) {
+            continue;
+        }
+
+        if (!chunkManager.deleteChunk(chunkId)) {
+            LOG_ERROR("Failed to delete chunk: " + chunkId);
+            success = false;
+        }
     }
 
     if (!success) {

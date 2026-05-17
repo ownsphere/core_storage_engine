@@ -1,4 +1,5 @@
 #include "chunk_manager.h"
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -25,13 +26,26 @@ std::string ChunkManager::chunksDir() const {
     return (std::filesystem::path(storageRoot_) / "chunks").string();
 }
 
-bool ChunkManager::writeChunk(const std::string& chunkId, const std::vector<char>& data) {
+bool ChunkManager::writeChunk(const std::string& chunkId,
+                              const std::vector<char>& data,
+                              bool* created) {
     const std::string dir = chunksDir();
     std::filesystem::create_directories(dir);
 
     const std::string path = (std::filesystem::path(dir) / chunkId).string();
-    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
     if (fd < 0) {
+        if (errno == EEXIST) {
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(path, ec) || ec) {
+                std::cerr << "ERROR: Cannot write chunk: " << chunkId << std::endl;
+                return false;
+            }
+            if (created != nullptr) {
+                *created = false;
+            }
+            return true;
+        }
         std::cerr << "ERROR: Cannot write chunk: " << chunkId << std::endl;
         return false;
     }
@@ -49,6 +63,10 @@ bool ChunkManager::writeChunk(const std::string& chunkId, const std::vector<char
 
     const bool synced = (::fsync(fd) == 0);
     ::close(fd);
+
+    if (created != nullptr) {
+        *created = true;
+    }
 
     return synced && fsyncDirectory(dir);
 }

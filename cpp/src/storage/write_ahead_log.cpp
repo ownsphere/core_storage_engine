@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -63,6 +64,40 @@ bool fsyncDirectory(const std::string& path) {
     const bool ok = (::fsync(fd) == 0);
     ::close(fd);
     return ok;
+}
+
+std::unordered_set<std::string> collectReferencedChunkIds(MetadataManager& metadataManager,
+                                                          const std::vector<WalEntry>& walEntries,
+                                                          const std::string& excludedWalFileId) {
+    std::unordered_set<std::string> referencedChunkIds;
+    const std::filesystem::path metadataDir(metadataManager.metadataDir());
+
+    if (std::filesystem::exists(metadataDir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(metadataDir)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
+                continue;
+            }
+
+            const std::string fileId = entry.path().stem().string();
+            for (const auto& metadata : metadataManager.listMetadataVersions(fileId)) {
+                for (const auto& chunk : metadata.chunks) {
+                    referencedChunkIds.insert(chunk.id);
+                }
+            }
+        }
+    }
+
+    for (const auto& walEntry : walEntries) {
+        if (walEntry.fileId == excludedWalFileId) {
+            continue;
+        }
+
+        for (const auto& chunk : walEntry.newChunks) {
+            referencedChunkIds.insert(chunk.id);
+        }
+    }
+
+    return referencedChunkIds;
 }
 }  // namespace
 
@@ -145,27 +180,17 @@ bool WriteAheadLog::remove(const std::string& fileId) {
 
 bool WriteAheadLog::recoverPending(MetadataManager& metadataManager,
                                    ChunkManager& chunkManager) {
-    const std::string dir = walDir();
-    if (!std::filesystem::exists(dir)) {
-        return true;
-    }
-
     bool allRecovered = true;
 
-    for (const auto& entryPath : std::filesystem::directory_iterator(dir)) {
-        if (!entryPath.is_regular_file()) {
-            continue;
-        }
-
-        WalEntry entry;
-        if (!loadEntry(entryPath.path().string(), entry)) {
-            allRecovered = false;
-            continue;
-        }
-
+    const auto entries = listEntries();
+    for (const auto& entry : entries) {
         if (entry.state == WalState::Pending) {
+            const auto referencedChunkIds = collectReferencedChunkIds(metadataManager, entries, entry.fileId);
+
             for (const auto& chunk : entry.newChunks) {
-                chunkManager.deleteChunk(chunk.id);
+                if (referencedChunkIds.find(chunk.id) == referencedChunkIds.end()) {
+                    chunkManager.deleteChunk(chunk.id);
+                }
             }
 
             if (!remove(entry.fileId)) {
@@ -187,6 +212,27 @@ bool WriteAheadLog::recoverPending(MetadataManager& metadataManager,
     }
 
     return allRecovered;
+}
+
+std::vector<WalEntry> WriteAheadLog::listEntries() const {
+    std::vector<WalEntry> entries;
+    const std::string dir = walDir();
+    if (!std::filesystem::exists(dir)) {
+        return entries;
+    }
+
+    for (const auto& entryPath : std::filesystem::directory_iterator(dir)) {
+        if (!entryPath.is_regular_file()) {
+            continue;
+        }
+
+        WalEntry entry;
+        if (loadEntry(entryPath.path().string(), entry)) {
+            entries.push_back(std::move(entry));
+        }
+    }
+
+    return entries;
 }
 
 bool WriteAheadLog::writeEntry(const WalEntry& entry) {
