@@ -69,23 +69,8 @@ bool fsyncDirectory(const std::string& path) {
 std::unordered_set<std::string> collectReferencedChunkIds(MetadataManager& metadataManager,
                                                           const std::vector<WalEntry>& walEntries,
                                                           const std::string& excludedWalFileId) {
-    std::unordered_set<std::string> referencedChunkIds;
-    const std::filesystem::path metadataDir(metadataManager.metadataDir());
-
-    if (std::filesystem::exists(metadataDir)) {
-        for (const auto& entry : std::filesystem::directory_iterator(metadataDir)) {
-            if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
-                continue;
-            }
-
-            const std::string fileId = entry.path().stem().string();
-            for (const auto& metadata : metadataManager.listMetadataVersions(fileId)) {
-                for (const auto& chunk : metadata.chunks) {
-                    referencedChunkIds.insert(chunk.id);
-                }
-            }
-        }
-    }
+    std::unordered_set<std::string> referencedChunkIds =
+        metadataManager.collectReferencedChunkIds();
 
     for (const auto& walEntry : walEntries) {
         if (walEntry.fileId == excludedWalFileId) {

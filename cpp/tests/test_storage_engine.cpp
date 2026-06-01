@@ -183,6 +183,30 @@ TEST(StorageEngineTest, ListFiles) {
     cleanup(input);
 }
 
+TEST(StorageEngineTest, ListFilesReflectsIndexUpdates) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+
+    const std::string input = "indexed_list.txt";
+    const std::string fileId = uniqueId();
+
+    EXPECT_TRUE(engine.listFiles().empty());
+
+    createFile(input, "indexed metadata");
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+
+    auto files = engine.listFiles();
+    EXPECT_NE(std::find(files.begin(), files.end(), fileId), files.end());
+
+    ASSERT_TRUE(engine.deleteFile(fileId));
+
+    files = engine.listFiles();
+    EXPECT_EQ(std::find(files.begin(), files.end(), fileId), files.end());
+
+    cleanup(input);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineTest, OverwriteSameFileId) {
     StorageEngine engine;
 

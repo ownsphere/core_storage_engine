@@ -35,26 +35,7 @@ std::unordered_set<std::string> collectReferencedChunkIds(const std::string& sto
     std::unordered_set<std::string> referencedChunkIds;
     MetadataManager metadataManager(storageRoot);
     WriteAheadLog wal(storageRoot);
-    const std::filesystem::path metadataDir = metadataManager.metadataDir();
-
-    if (std::filesystem::exists(metadataDir)) {
-        for (const auto& entry : std::filesystem::directory_iterator(metadataDir)) {
-            if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
-                continue;
-            }
-
-            const std::string fileId = entry.path().stem().string();
-            if (!excludedMetadataFileId.empty() && fileId == excludedMetadataFileId) {
-                continue;
-            }
-
-            for (const auto& metadata : metadataManager.listMetadataVersions(fileId)) {
-                for (const auto& chunk : metadata.chunks) {
-                    referencedChunkIds.insert(chunk.id);
-                }
-            }
-        }
-    }
+    referencedChunkIds = metadataManager.collectReferencedChunkIds(excludedMetadataFileId);
 
     for (const auto& entry : wal.listEntries()) {
         if (!excludedWalFileId.empty() && entry.fileId == excludedWalFileId) {
@@ -496,24 +477,6 @@ bool StorageEngine::deleteFile(const std::string& fileId) {
 
 // ======================= LIST =======================
 std::vector<std::string> StorageEngine::listFiles() {
-    std::vector<std::string> files;
-    const std::string path = metadataDir();
-
-    try {
-        for (const auto& entry : std::filesystem::directory_iterator(path)) {
-            if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
-                continue;
-            }
-
-            std::string filename = entry.path().filename().string();
-
-            if (filename.size() > 5) {
-                files.push_back(filename.substr(0, filename.size() - 5));
-            }
-        }
-    } catch (const std::filesystem::filesystem_error& e) {
-        LOG_ERROR(std::string("Cannot list files: ") + e.what());
-    }
-
-    return files;
+    MetadataManager metadataManager(storageRoot_);
+    return metadataManager.listFileIds();
 }

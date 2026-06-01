@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include "models/chunk_info.h"
 
@@ -26,6 +27,9 @@ public:
                              FileMetadata& metadata);
     std::vector<FileMetadata> listMetadataVersions(const std::string& fileId);
     std::vector<ChunkInfo> loadChunks(const std::string& fileId);
+    std::vector<std::string> listFileIds();
+    std::unordered_set<std::string> collectReferencedChunkIds(
+        const std::string& excludedFileId = "");
     bool deleteMetadata(const std::string& fileId);
     void cleanupTempFiles();
 

@@ -21,6 +21,15 @@ std::mutex metadataCacheMutex;
 std::unordered_map<MetadataCacheKey, FileMetadata> metadataCache;
 std::atomic<unsigned long long> metadataVersionCounter{0};
 
+struct MetadataIndex {
+    bool loaded = false;
+    std::unordered_set<std::string> fileIds;
+    std::unordered_map<std::string, std::unordered_set<std::string>> chunkIdsByFile;
+};
+
+std::mutex metadataIndexMutex;
+std::unordered_map<std::string, MetadataIndex> metadataIndexes;
+
 bool writeAndSyncFile(const std::string& path, const std::string& content) {
     const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
@@ -168,6 +177,69 @@ bool loadMetadataFromPath(const std::string& path, FileMetadata& metadata) {
 
     return parseMetadata(in, metadata);
 }
+
+void addMetadataChunksToIndex(MetadataIndex& index,
+                              const std::string& fileId,
+                              const FileMetadata& metadata) {
+    auto& chunkIds = index.chunkIdsByFile[fileId];
+    for (const auto& chunk : metadata.chunks) {
+        chunkIds.insert(chunk.id);
+    }
+}
+
+MetadataIndex buildMetadataIndex(const std::string& storageRoot) {
+    MetadataIndex index;
+    index.loaded = true;
+
+    const std::filesystem::path metadataRoot =
+        std::filesystem::path(storageRoot) / "metadata";
+    if (!std::filesystem::exists(metadataRoot)) {
+        return index;
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(metadataRoot)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".meta") {
+            continue;
+        }
+
+        const std::string fileId = entry.path().stem().string();
+        index.fileIds.insert(fileId);
+        index.chunkIdsByFile.try_emplace(fileId);
+
+        FileMetadata metadata;
+        if (loadMetadataFromPath(entry.path().string(), metadata)) {
+            addMetadataChunksToIndex(index, fileId, metadata);
+        }
+
+        const std::filesystem::path versionsDir =
+            metadataRoot / "versions" / fileId;
+        if (!std::filesystem::exists(versionsDir)) {
+            continue;
+        }
+
+        for (const auto& versionEntry : std::filesystem::directory_iterator(versionsDir)) {
+            if (!versionEntry.is_regular_file() ||
+                versionEntry.path().extension() != ".meta") {
+                continue;
+            }
+
+            FileMetadata versionMetadata;
+            if (loadMetadataFromPath(versionEntry.path().string(), versionMetadata)) {
+                addMetadataChunksToIndex(index, fileId, versionMetadata);
+            }
+        }
+    }
+
+    return index;
+}
+
+MetadataIndex& ensureMetadataIndexLocked(const std::string& storageRoot) {
+    auto& index = metadataIndexes[storageRoot];
+    if (!index.loaded) {
+        index = buildMetadataIndex(storageRoot);
+    }
+    return index;
+}
 }
 
 MetadataManager::MetadataManager(std::string storageRoot)
@@ -245,8 +317,19 @@ bool MetadataManager::saveMetadata(const std::string& fileId,
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(metadataCacheMutex);
-    metadataCache[cacheKeyFor(storageRoot_, fileId)] = std::move(metadata);
+    {
+        std::lock_guard<std::mutex> lock(metadataCacheMutex);
+        metadataCache[cacheKeyFor(storageRoot_, fileId)] = metadata;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(metadataIndexMutex);
+        auto& index = metadataIndexes[storageRoot_];
+        if (index.loaded) {
+            index.fileIds.insert(fileId);
+            addMetadataChunksToIndex(index, fileId, metadata);
+        }
+    }
     return true;
 }
 
@@ -339,6 +422,37 @@ std::vector<ChunkInfo> MetadataManager::loadChunks(const std::string &fileId)
     return metadata.chunks;
 }
 
+std::vector<std::string> MetadataManager::listFileIds()
+{
+    std::vector<std::string> fileIds;
+    {
+        std::lock_guard<std::mutex> lock(metadataIndexMutex);
+        const auto& index = ensureMetadataIndexLocked(storageRoot_);
+        fileIds.assign(index.fileIds.begin(), index.fileIds.end());
+    }
+
+    std::sort(fileIds.begin(), fileIds.end());
+    return fileIds;
+}
+
+std::unordered_set<std::string> MetadataManager::collectReferencedChunkIds(
+    const std::string& excludedFileId)
+{
+    std::unordered_set<std::string> referencedChunkIds;
+    std::lock_guard<std::mutex> lock(metadataIndexMutex);
+    const auto& index = ensureMetadataIndexLocked(storageRoot_);
+
+    for (const auto& [fileId, chunkIds] : index.chunkIdsByFile) {
+        if (!excludedFileId.empty() && fileId == excludedFileId) {
+            continue;
+        }
+
+        referencedChunkIds.insert(chunkIds.begin(), chunkIds.end());
+    }
+
+    return referencedChunkIds;
+}
+
 bool MetadataManager::deleteMetadata(const std::string& fileId)
 {
     const std::string path = metadataPath(fileId);
@@ -359,6 +473,14 @@ bool MetadataManager::deleteMetadata(const std::string& fileId)
 
     std::lock_guard<std::mutex> lock(metadataCacheMutex);
     metadataCache.erase(cacheKeyFor(storageRoot_, fileId));
+    {
+        std::lock_guard<std::mutex> indexLock(metadataIndexMutex);
+        auto& index = metadataIndexes[storageRoot_];
+        if (index.loaded) {
+            index.fileIds.erase(fileId);
+            index.chunkIdsByFile.erase(fileId);
+        }
+    }
     return removed || !std::filesystem::exists(path);
 }
 
