@@ -475,6 +475,26 @@ bool StorageEngine::deleteFile(const std::string& fileId) {
     return true;
 }
 
+bool StorageEngine::deleteAllFiles() {
+    const auto files = listFiles();
+    bool success = true;
+
+    for (const auto& fileId : files) {
+        if (!deleteFile(fileId)) {
+            LOG_ERROR("Failed to delete file during delete-all: " + fileId);
+            success = false;
+        }
+    }
+
+    if (success) {
+        LOG_INFO("Deleted all files");
+    } else {
+        LOG_ERROR("Delete-all completed with failures");
+    }
+
+    return success;
+}
+
 // ======================= LIST =======================
 std::vector<std::string> StorageEngine::listFiles() {
     MetadataManager metadataManager(storageRoot_);

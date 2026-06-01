@@ -124,6 +124,34 @@ TEST(StorageEngineTest, DeleteFile) {
     cleanup(output);
 }
 
+TEST(StorageEngineTest, DeleteAllFiles) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+
+    const std::string inputOne = "delete_all_one.txt";
+    const std::string inputTwo = "delete_all_two.txt";
+    const std::string output = "delete_all_out.txt";
+    const std::string fileIdOne = uniqueId();
+    const std::string fileIdTwo = uniqueId();
+
+    createFile(inputOne, "first delete-all file");
+    createFile(inputTwo, "second delete-all file");
+
+    ASSERT_TRUE(engine.storeFile(inputOne, fileIdOne));
+    ASSERT_TRUE(engine.storeFile(inputTwo, fileIdTwo));
+    ASSERT_EQ(engine.listFiles().size(), 2u);
+
+    EXPECT_TRUE(engine.deleteAllFiles());
+    EXPECT_TRUE(engine.listFiles().empty());
+    EXPECT_FALSE(engine.retrieveFile(fileIdOne, output));
+    EXPECT_FALSE(engine.retrieveFile(fileIdTwo, output));
+
+    cleanup(inputOne);
+    cleanup(inputTwo);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineTest, DeleteFileReturnsFalseWhenChunkDeletionFails) {
     const std::string storageRoot = makeStorageRoot();
     StorageEngine engine(storageRoot);

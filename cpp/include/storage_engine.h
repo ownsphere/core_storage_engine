@@ -28,6 +28,7 @@ public:
 
     std::vector<std::string> listFiles();
     bool deleteFile(const std::string& fileId);
+    bool deleteAllFiles();
 
     int getProgress(const std::string& fileId);
     void waitForBackgroundTasks();
