@@ -16,6 +16,7 @@ if(NOT DEFINED OPENSSL_ROOT_DIR)
 endif()
 
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 
 # ---------------- CORE LIBRARY ----------------
 add_library(engine_lib
@@ -28,7 +29,7 @@ add_library(engine_lib
     src/utils/logger.cpp
 )
 
-target_link_libraries(engine_lib PUBLIC OpenSSL::Crypto)
+target_link_libraries(engine_lib PUBLIC OpenSSL::Crypto Threads::Threads)
 
 # ---------------- MAIN EXECUTABLE ----------------
 add_executable(engine

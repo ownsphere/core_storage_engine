@@ -385,6 +385,7 @@ TEST(StorageEngineTest, StartupGarbageCollectionRemovesOrphanedChunks) {
     ASSERT_TRUE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / orphanChunkId));
 
     StorageEngine recoveredEngine(storageRoot);
+    recoveredEngine.waitForBackgroundTasks();
 
     EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / orphanChunkId));
     EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / liveChunks.front().id));

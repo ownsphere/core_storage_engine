@@ -14,6 +14,7 @@
 #include <mutex>
 #include <atomic>
 #include <set>
+#include <exception>
 
 static std::unordered_map<std::string, int> progressMap;
 static std::mutex progressMutex;
@@ -143,8 +144,34 @@ StorageEngine::StorageEngine(std::string storageRoot)
     ChunkManager chunkManager(storageRoot_);
     WriteAheadLog wal(storageRoot_);
     wal.recoverPending(metadataManager, chunkManager);
-    metadataManager.cleanupTempFiles();
-    collectGarbageChunks(storageRoot_);
+    startBackgroundMaintenance();
+}
+
+StorageEngine::~StorageEngine() {
+    waitForBackgroundTasks();
+}
+
+void StorageEngine::waitForBackgroundTasks() {
+    if (maintenanceThread_.joinable()) {
+        maintenanceThread_.join();
+    }
+}
+
+void StorageEngine::startBackgroundMaintenance() {
+    maintenanceThread_ = std::thread(&StorageEngine::runBackgroundMaintenance, this);
+}
+
+void StorageEngine::runBackgroundMaintenance() {
+    try {
+        std::lock_guard<std::mutex> maintenanceLock(maintenanceMutex_);
+        MetadataManager metadataManager(storageRoot_);
+        metadataManager.cleanupTempFiles();
+        collectGarbageChunks(storageRoot_);
+    } catch (const std::exception& e) {
+        LOG_ERROR(std::string("Background maintenance failed: ") + e.what());
+    } catch (...) {
+        LOG_ERROR("Background maintenance failed with unknown error");
+    }
 }
 
 std::string StorageEngine::metadataPath(const std::string& fileId) const {
@@ -427,6 +454,7 @@ bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &
 // ======================= DELETE =======================
 bool StorageEngine::deleteFile(const std::string& fileId) {
     auto fileLock = lockFileOperation(storageRoot_, fileId);
+    std::lock_guard<std::mutex> maintenanceLock(maintenanceMutex_);
 
     MetadataManager metadataManager(storageRoot_);
     ChunkManager chunkManager(storageRoot_);
