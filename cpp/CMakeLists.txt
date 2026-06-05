@@ -62,6 +62,7 @@ add_executable(runTests
     tests/test_storage_engine.cpp
     tests/test_checksum.cpp
     tests/test_encryption.cpp
+    tests/test_bridge.cpp
 )
 
 target_link_libraries(runTests
