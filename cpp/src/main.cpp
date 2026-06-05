@@ -12,7 +12,8 @@ void showMenu() {
     std::cout << "2. Read file\n";
     std::cout << "3. List files\n";
     std::cout << "4. Delete file\n";
-    std::cout << "5. Exit\n";
+    std::cout << "5. Delete all files\n";
+    std::cout << "6. Exit\n";
     std::cout << "Choose option: ";
 }
 
@@ -134,8 +135,31 @@ int main() {
             }
         }
 
-        // ================= EXIT =================
+        // ================= DELETE ALL =================
         else if (choice == 5) {
+            std::string confirmation;
+            std::cout << "Delete all stored files? Type YES to confirm: ";
+            std::getline(std::cin, confirmation);
+
+            if (confirmation != "YES") {
+                std::cout << "Delete-all cancelled\n";
+                LOG_INFO("Delete-all cancelled");
+                continue;
+            }
+
+            LOG_INFO("Delete-all request");
+
+            if (engine.deleteAllFiles()) {
+                std::cout << "✅ All files deleted\n";
+                LOG_INFO("All files deleted");
+            } else {
+                std::cout << "❌ Failed to delete one or more files\n";
+                LOG_ERROR("Delete-all failed");
+            }
+        }
+
+        // ================= EXIT =================
+        else if (choice == 6) {
             LOG_INFO("Application shutting down");
             std::cout << "Exiting...\n";
             break;

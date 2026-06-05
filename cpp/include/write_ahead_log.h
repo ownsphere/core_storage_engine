@@ -37,6 +37,7 @@ public:
     bool markApplying(const std::string& fileId);
     bool markCommitted(const std::string& fileId);
     bool remove(const std::string& fileId);
+    std::vector<WalEntry> listEntries() const;
 
     bool recoverPending(MetadataManager& metadataManager,
                         ChunkManager& chunkManager);

@@ -48,10 +48,9 @@ std::vector<char> toBytes(const std::string& value) {
     return std::vector<char>(value.begin(), value.end());
 }
 
-std::vector<std::string> chunkFilesFor(const std::string& fileId) {
+std::vector<std::string> chunkFilesIn(const std::string& storageRoot = "data") {
     std::vector<std::string> chunkFiles;
-    const std::string prefix = fileId + "_";
-    const std::filesystem::path chunkDir("data/chunks");
+    const std::filesystem::path chunkDir = std::filesystem::path(storageRoot) / "chunks";
 
     if (!std::filesystem::exists(chunkDir)) {
         return chunkFiles;
@@ -62,10 +61,7 @@ std::vector<std::string> chunkFilesFor(const std::string& fileId) {
             continue;
         }
 
-        const std::string name = entry.path().filename().string();
-        if (name.rfind(prefix, 0) == 0) {
-            chunkFiles.push_back(name);
-        }
+        chunkFiles.push_back(entry.path().filename().string());
     }
 
     return chunkFiles;
@@ -128,6 +124,68 @@ TEST(StorageEngineTest, DeleteFile) {
     cleanup(output);
 }
 
+TEST(StorageEngineTest, DeleteAllFiles) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+
+    const std::string inputOne = "delete_all_one.txt";
+    const std::string inputTwo = "delete_all_two.txt";
+    const std::string output = "delete_all_out.txt";
+    const std::string fileIdOne = uniqueId();
+    const std::string fileIdTwo = uniqueId();
+
+    createFile(inputOne, "first delete-all file");
+    createFile(inputTwo, "second delete-all file");
+
+    ASSERT_TRUE(engine.storeFile(inputOne, fileIdOne));
+    ASSERT_TRUE(engine.storeFile(inputTwo, fileIdTwo));
+    ASSERT_EQ(engine.listFiles().size(), 2u);
+
+    EXPECT_TRUE(engine.deleteAllFiles());
+    EXPECT_TRUE(engine.listFiles().empty());
+    EXPECT_FALSE(engine.retrieveFile(fileIdOne, output));
+    EXPECT_FALSE(engine.retrieveFile(fileIdTwo, output));
+
+    cleanup(inputOne);
+    cleanup(inputTwo);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
+TEST(StorageEngineTest, DeleteFileReturnsFalseWhenChunkDeletionFails) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input = "delete_failure.txt";
+    const std::string fileId = uniqueId();
+    const std::filesystem::path chunkDir = std::filesystem::path(storageRoot) / "chunks";
+
+    createFile(input, "delete failure");
+
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+    ASSERT_FALSE(metadataManager.loadChunks(fileId).empty());
+
+    std::filesystem::permissions(
+        chunkDir,
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec |
+            std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
+            std::filesystem::perms::others_read | std::filesystem::perms::others_exec,
+        std::filesystem::perm_options::replace);
+
+    EXPECT_FALSE(engine.deleteFile(fileId));
+
+    std::filesystem::permissions(
+        chunkDir,
+        std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+            std::filesystem::perms::group_exec | std::filesystem::perms::others_read |
+            std::filesystem::perms::others_exec,
+        std::filesystem::perm_options::replace);
+
+    cleanup(input);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineTest, InvalidInputFile) {
     StorageEngine engine;
     EXPECT_FALSE(engine.storeFile("invalid.txt", uniqueId()));
@@ -153,6 +211,30 @@ TEST(StorageEngineTest, ListFiles) {
     cleanup(input);
 }
 
+TEST(StorageEngineTest, ListFilesReflectsIndexUpdates) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+
+    const std::string input = "indexed_list.txt";
+    const std::string fileId = uniqueId();
+
+    EXPECT_TRUE(engine.listFiles().empty());
+
+    createFile(input, "indexed metadata");
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+
+    auto files = engine.listFiles();
+    EXPECT_NE(std::find(files.begin(), files.end(), fileId), files.end());
+
+    ASSERT_TRUE(engine.deleteFile(fileId));
+
+    files = engine.listFiles();
+    EXPECT_EQ(std::find(files.begin(), files.end(), fileId), files.end());
+
+    cleanup(input);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineTest, OverwriteSameFileId) {
     StorageEngine engine;
 
@@ -173,6 +255,103 @@ TEST(StorageEngineTest, OverwriteSameFileId) {
     cleanup(input1);
     cleanup(input2);
     cleanup(output);
+}
+
+TEST(StorageEngineTest, OverwriteTracksMetadataVersions) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input1 = "versioned_file_one.txt";
+    const std::string input2 = "versioned_file_two.txt";
+    const std::string fileId = uniqueId();
+
+    createFile(input1, "First");
+    createFile(input2, "Second");
+
+    ASSERT_TRUE(engine.storeFile(input1, fileId));
+    FileMetadata firstMetadata;
+    ASSERT_TRUE(metadataManager.loadMetadata(fileId, firstMetadata));
+    ASSERT_FALSE(firstMetadata.versionId.empty());
+    EXPECT_TRUE(firstMetadata.previousVersionId.empty());
+
+    ASSERT_TRUE(engine.storeFile(input2, fileId));
+    FileMetadata latestMetadata;
+    ASSERT_TRUE(metadataManager.loadMetadata(fileId, latestMetadata));
+    ASSERT_FALSE(latestMetadata.versionId.empty());
+    EXPECT_EQ(latestMetadata.previousVersionId, firstMetadata.versionId);
+
+    const auto versions = metadataManager.listMetadataVersions(fileId);
+    ASSERT_EQ(versions.size(), 2u);
+    EXPECT_EQ(versions[0].fileSize, std::string("Second").size());
+    EXPECT_EQ(versions[1].fileSize, std::string("First").size());
+
+    FileMetadata historicMetadata;
+    ASSERT_TRUE(metadataManager.loadMetadataVersion(fileId, firstMetadata.versionId, historicMetadata));
+    EXPECT_EQ(historicMetadata.fileSize, std::string("First").size());
+    ASSERT_EQ(historicMetadata.chunks.size(), 1u);
+    EXPECT_EQ(historicMetadata.chunks.front().id, firstMetadata.chunks.front().id);
+
+    cleanup(input1);
+    cleanup(input2);
+    cleanupDirectory(storageRoot);
+}
+
+TEST(StorageEngineTest, IdenticalFilesReuseChunkStorage) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input = "dedup_identical_input.txt";
+    const std::string fileIdOne = uniqueId();
+    const std::string fileIdTwo = uniqueId();
+
+    createFile(input, "same contents should share chunk storage");
+
+    ASSERT_TRUE(engine.storeFile(input, fileIdOne));
+    ASSERT_TRUE(engine.storeFile(input, fileIdTwo));
+
+    const auto chunksOne = metadataManager.loadChunks(fileIdOne);
+    const auto chunksTwo = metadataManager.loadChunks(fileIdTwo);
+
+    ASSERT_EQ(chunksOne.size(), 1u);
+    ASSERT_EQ(chunksTwo.size(), 1u);
+    EXPECT_EQ(chunksOne.front().id, chunksTwo.front().id);
+    EXPECT_EQ(chunkFilesIn(storageRoot).size(), 1u);
+
+    cleanup(input);
+    cleanupDirectory(storageRoot);
+}
+
+TEST(StorageEngineTest, DeletePreservesChunksSharedWithOtherFiles) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input = "dedup_delete_input.txt";
+    const std::string output = "dedup_delete_output.txt";
+    const std::string fileIdOne = uniqueId();
+    const std::string fileIdTwo = uniqueId();
+
+    createFile(input, "shared data survives deleting one owner");
+
+    ASSERT_TRUE(engine.storeFile(input, fileIdOne));
+    ASSERT_TRUE(engine.storeFile(input, fileIdTwo));
+
+    const auto chunksOne = metadataManager.loadChunks(fileIdOne);
+    const auto chunksTwo = metadataManager.loadChunks(fileIdTwo);
+    ASSERT_EQ(chunksOne.size(), 1u);
+    ASSERT_EQ(chunksTwo.size(), 1u);
+    ASSERT_EQ(chunksOne.front().id, chunksTwo.front().id);
+
+    ASSERT_TRUE(engine.deleteFile(fileIdOne));
+    EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(storageRoot) / "chunks" / chunksTwo.front().id));
+    EXPECT_TRUE(engine.retrieveFile(fileIdTwo, output));
+    EXPECT_EQ(readFile(output), "shared data survives deleting one owner");
+
+    cleanup(input);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
 }
 
 TEST(StorageEngineTest, ProgressCallbackWorks) {
@@ -209,6 +388,61 @@ TEST(StorageEngineTest, SupportsCustomStorageRoot) {
     EXPECT_EQ(readFile(output), "stored outside default data path");
     EXPECT_TRUE(std::filesystem::exists(metadataManager.metadataPath(fileId)));
     EXPECT_FALSE(std::filesystem::exists("data/metadata/" + fileId + ".meta"));
+
+    cleanup(input);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
+TEST(StorageEngineTest, RetrieveUsesCachedMetadataWhenDiskMetadataIsMissing) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input = "cached_metadata_input.txt";
+    const std::string output = "cached_metadata_output.txt";
+    const std::string fileId = uniqueId();
+
+    createFile(input, "metadata cache keeps reads fast");
+
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+    ASSERT_TRUE(std::filesystem::remove(metadataManager.metadataPath(fileId)));
+
+    EXPECT_TRUE(engine.retrieveFile(fileId, output));
+    EXPECT_EQ(readFile(output), "metadata cache keeps reads fast");
+
+    cleanup(input);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
+TEST(StorageEngineTest, StartupGarbageCollectionRemovesOrphanedChunks) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+    ChunkManager chunkManager(storageRoot);
+
+    const std::string input = "gc_orphan_input.txt";
+    const std::string output = "gc_orphan_output.txt";
+    const std::string fileId = uniqueId();
+    const std::string orphanChunkId = fileId + "_orphan_chunk";
+
+    createFile(input, "live data must survive cleanup");
+
+    ASSERT_TRUE(engine.storeFile(input, fileId));
+    const auto liveChunks = metadataManager.loadChunks(fileId);
+    ASSERT_FALSE(liveChunks.empty());
+
+    ASSERT_TRUE(chunkManager.writeChunk(orphanChunkId, encryptData(toBytes("orphan"), "mysecretkey")));
+    ASSERT_TRUE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / orphanChunkId));
+
+    StorageEngine recoveredEngine(storageRoot);
+    recoveredEngine.waitForBackgroundTasks();
+
+    EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / orphanChunkId));
+    EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(chunkManager.chunksDir()) / liveChunks.front().id));
+    EXPECT_TRUE(recoveredEngine.retrieveFile(fileId, output));
+    EXPECT_EQ(readFile(output), "live data must survive cleanup");
 
     cleanup(input);
     cleanup(output);
@@ -325,13 +559,69 @@ TEST(StorageEngineAdvancedTest, ConcurrentWrites) {
     EXPECT_GE(files.size(), 10);
 }
 
+TEST(StorageEngineAdvancedTest, ConcurrentWritesToSameFileIdAreSerialized) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string fileId = uniqueId();
+    const std::string input1 = "same_id_writer_one.txt";
+    const std::string input2 = "same_id_writer_two.txt";
+    const std::string output = "same_id_writer_out.txt";
+    const std::filesystem::path chunkDir = std::filesystem::path(storageRoot) / "chunks";
+    const std::string payload1(6 * 1024 * 1024, 'A');
+    const std::string payload2(6 * 1024 * 1024, 'B');
+
+    createFile(input1, payload1);
+    createFile(input2, payload2);
+
+    std::atomic<int> ready{0};
+
+    auto store = [&](const std::string& inputPath) {
+        ready.fetch_add(1);
+        while (ready.load() < 2) {
+            std::this_thread::yield();
+        }
+        EXPECT_TRUE(engine.storeFile(inputPath, fileId));
+    };
+
+    std::thread first(store, std::cref(input1));
+    std::thread second(store, std::cref(input2));
+
+    first.join();
+    second.join();
+
+    ASSERT_TRUE(engine.retrieveFile(fileId, output));
+
+    const std::string finalContent = readFile(output);
+    EXPECT_TRUE(finalContent == payload1 || finalContent == payload2);
+
+    const auto chunks = metadataManager.loadChunks(fileId);
+    ASSERT_FALSE(chunks.empty());
+    size_t chunkFileCount = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(chunkDir)) {
+        if (entry.is_regular_file()) {
+            chunkFileCount++;
+        }
+    }
+    EXPECT_GE(chunkFileCount, 1u);
+    EXPECT_FALSE(std::filesystem::exists(metadataManager.metadataPath(fileId) + ".tmp"));
+    EXPECT_FALSE(std::filesystem::exists(storageRoot + "/wal/" + fileId + ".wal.tmp"));
+
+    cleanup(input1);
+    cleanup(input2);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineRecoveryTest, ChunkWriteFailureRollsBackAttemptedChunks) {
-    StorageEngine engine;
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
 
     std::string input = "rollback_partial_failure.txt";
     std::string fileId = uniqueId();
-    const std::string walPath = "data/wal/" + fileId + ".wal";
-    const std::filesystem::path chunkDir("data/chunks");
+    const std::string walPath = storageRoot + "/wal/" + fileId + ".wal";
+    const std::filesystem::path chunkDir = std::filesystem::path(storageRoot) / "chunks";
 
     std::ofstream out(input, std::ios::binary);
     out << std::string(5 * 1024 * 1024, 'R');
@@ -352,15 +642,8 @@ TEST(StorageEngineRecoveryTest, ChunkWriteFailureRollsBackAttemptedChunks) {
             return;
         }
 
-        const auto chunkFiles = chunkFilesFor(fileId);
-        ASSERT_EQ(chunkFiles.size(), 1u);
-
-        const std::string currentChunk = chunkFiles.front();
-        const std::string suffix = "_chunk_0";
-        ASSERT_NE(currentChunk.rfind(suffix), std::string::npos);
-
-        const std::string nextChunkPath = "data/chunks/" +
-            currentChunk.substr(0, currentChunk.size() - suffix.size()) + "_chunk_1";
+        const std::string secondChunkPayload(1 * 1024 * 1024, 'R');
+        const std::string nextChunkPath = (chunkDir / computeChecksum(toBytes(secondChunkPayload))).string();
         std::filesystem::create_directories(nextChunkPath);
         injectedFailure = true;
     };
@@ -368,10 +651,11 @@ TEST(StorageEngineRecoveryTest, ChunkWriteFailureRollsBackAttemptedChunks) {
     EXPECT_FALSE(engine.storeFile(input, fileId, cb));
 
     EXPECT_TRUE(injectedFailure);
-    EXPECT_TRUE(chunkFilesFor(fileId).empty());
+    EXPECT_TRUE(chunkFilesIn(storageRoot).empty());
     EXPECT_FALSE(std::filesystem::exists(walPath));
 
     cleanup(input);
+    cleanupDirectory(storageRoot);
 }
 
 TEST(StorageEngineRecoveryTest, PendingWalRollsBackNewChunks) {
@@ -447,7 +731,7 @@ TEST(StorageEngineRecoveryTest, ApplyingWalReplaysCommittedMetadata) {
     EXPECT_FALSE(std::filesystem::exists("data/wal/" + fileId + ".wal"));
 
     for (const auto& chunkId : oldChunkIds) {
-        EXPECT_FALSE(std::filesystem::exists("data/chunks/" + chunkId));
+        EXPECT_TRUE(std::filesystem::exists("data/chunks/" + chunkId));
     }
 
     cleanup(input);

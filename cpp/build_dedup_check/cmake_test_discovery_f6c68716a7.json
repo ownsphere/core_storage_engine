@@ -1,0 +1,216 @@
+{
+  "tests": 36,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "StorageEngineTest",
+      "tests": 14,
+      "testsuite": [
+        {
+          "name": "StoreAndRetrieveFile",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 76
+        },
+        {
+          "name": "EmptyFileHandling",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 93
+        },
+        {
+          "name": "DeleteFile",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 110
+        },
+        {
+          "name": "DeleteFileReturnsFalseWhenChunkDeletionFails",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 127
+        },
+        {
+          "name": "InvalidInputFile",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 161
+        },
+        {
+          "name": "ListFiles",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 166
+        },
+        {
+          "name": "OverwriteSameFileId",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 186
+        },
+        {
+          "name": "OverwriteTracksMetadataVersions",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 208
+        },
+        {
+          "name": "IdenticalFilesReuseChunkStorage",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 248
+        },
+        {
+          "name": "DeletePreservesChunksSharedWithOtherFiles",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 274
+        },
+        {
+          "name": "ProgressCallbackWorks",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 305
+        },
+        {
+          "name": "SupportsCustomStorageRoot",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 323
+        },
+        {
+          "name": "RetrieveUsesCachedMetadataWhenDiskMetadataIsMissing",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 345
+        },
+        {
+          "name": "StartupGarbageCollectionRemovesOrphanedChunks",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 367
+        }
+      ]
+    },
+    {
+      "name": "StorageEngineAdvancedTest",
+      "tests": 6,
+      "testsuite": [
+        {
+          "name": "MissingChunkFailure",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 402
+        },
+        {
+          "name": "ChecksumCorruption",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 427
+        },
+        {
+          "name": "LargeFileHandling",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 454
+        },
+        {
+          "name": "MultipleFiles",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 473
+        },
+        {
+          "name": "ConcurrentWrites",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 488
+        },
+        {
+          "name": "ConcurrentWritesToSameFileIdAreSerialized",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 509
+        }
+      ]
+    },
+    {
+      "name": "StorageEngineRecoveryTest",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "ChunkWriteFailureRollsBackAttemptedChunks",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 564
+        },
+        {
+          "name": "PendingWalRollsBackNewChunks",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 608
+        },
+        {
+          "name": "ApplyingWalReplaysCommittedMetadata",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_storage_engine.cpp",
+          "line": 646
+        }
+      ]
+    },
+    {
+      "name": "ChecksumTest",
+      "tests": 9,
+      "testsuite": [
+        {
+          "name": "Deterministic",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 9
+        },
+        {
+          "name": "DifferentInput",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 19
+        },
+        {
+          "name": "EmptyData",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 29
+        },
+        {
+          "name": "SingleCharacter",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 39
+        },
+        {
+          "name": "MatchesKnownSha256Vector",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 47
+        },
+        {
+          "name": "LargeDataDeterministic",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 58
+        },
+        {
+          "name": "SmallChangeChangesHash",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 70
+        },
+        {
+          "name": "BinaryData",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 80
+        },
+        {
+          "name": "IncrementalUpdatesMatchOneShotHash",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_checksum.cpp",
+          "line": 88
+        }
+      ]
+    },
+    {
+      "name": "EncryptionTest",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "RoundTripRestoresOriginalPlaintext",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_encryption.cpp",
+          "line": 17
+        },
+        {
+          "name": "RandomNonceProducesDifferentCiphertext",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_encryption.cpp",
+          "line": 29
+        },
+        {
+          "name": "WrongKeyDoesNotRestorePlaintext",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_encryption.cpp",
+          "line": 41
+        },
+        {
+          "name": "StreamDecryptRestoresOriginalPlaintextAndChecksum",
+          "file": "\/Users\/shekhar\/Documents\/Work\/Ownsphere\/nas\/core_storage_engine\/cpp\/tests\/test_encryption.cpp",
+          "line": 52
+        }
+      ]
+    }
+  ]
+}

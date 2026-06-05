@@ -1,7 +1,9 @@
 #include "encryption.h"
 
 #include <array>
+#include <istream>
 #include <memory>
+#include <ostream>
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -117,4 +119,82 @@ std::vector<char> decryptData(const std::vector<char>& data, const std::string& 
 
     plaintext.resize(static_cast<size_t>(bytesWritten + finalBytes));
     return plaintext;
+}
+
+bool decryptStream(std::istream& input,
+                   std::ostream& output,
+                   const std::string& key,
+                   ChecksumState* checksum) {
+    std::array<unsigned char, kAesBlockSize> iv{};
+    input.read(reinterpret_cast<char*>(iv.data()), static_cast<std::streamsize>(iv.size()));
+    if (input.gcount() != static_cast<std::streamsize>(iv.size())) {
+        return false;
+    }
+
+    const auto derivedKey = deriveKey(key);
+    auto context = createCipherContext();
+    if (!context) {
+        return false;
+    }
+
+    if (EVP_DecryptInit_ex(context.get(), EVP_aes_256_cbc(), nullptr, derivedKey.data(), iv.data()) != 1) {
+        return false;
+    }
+
+    std::array<char, 64 * 1024> encryptedBuffer{};
+    std::array<char, (64 * 1024) + kAesBlockSize> plaintextBuffer{};
+
+    while (input) {
+        input.read(encryptedBuffer.data(), static_cast<std::streamsize>(encryptedBuffer.size()));
+        const std::streamsize bytesRead = input.gcount();
+        if (bytesRead <= 0) {
+            break;
+        }
+
+        int bytesWritten = 0;
+        if (EVP_DecryptUpdate(
+                context.get(),
+                reinterpret_cast<unsigned char*>(plaintextBuffer.data()),
+                &bytesWritten,
+                reinterpret_cast<const unsigned char*>(encryptedBuffer.data()),
+                static_cast<int>(bytesRead)) != 1) {
+            return false;
+        }
+
+        if (bytesWritten > 0) {
+            if (checksum != nullptr) {
+                checksum->update(plaintextBuffer.data(), static_cast<size_t>(bytesWritten));
+            }
+
+            output.write(plaintextBuffer.data(), bytesWritten);
+            if (!output) {
+                return false;
+            }
+        }
+    }
+
+    if (input.bad()) {
+        return false;
+    }
+
+    int finalBytes = 0;
+    if (EVP_DecryptFinal_ex(
+            context.get(),
+            reinterpret_cast<unsigned char*>(plaintextBuffer.data()),
+            &finalBytes) != 1) {
+        return false;
+    }
+
+    if (finalBytes > 0) {
+        if (checksum != nullptr) {
+            checksum->update(plaintextBuffer.data(), static_cast<size_t>(finalBytes));
+        }
+
+        output.write(plaintextBuffer.data(), finalBytes);
+        if (!output) {
+            return false;
+        }
+    }
+
+    return true;
 }

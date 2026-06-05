@@ -1,5 +1,7 @@
 #pragma once
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>  
 #include <functional>
 
@@ -11,6 +13,10 @@ using ProgressCallback = std::function<void(int)>;
 class StorageEngine {
 public:
     explicit StorageEngine(std::string storageRoot = "data");
+    ~StorageEngine();
+
+    StorageEngine(const StorageEngine&) = delete;
+    StorageEngine& operator=(const StorageEngine&) = delete;
 
     bool storeFile(const std::string& filePath,
                    const std::string& fileId,
@@ -22,12 +28,18 @@ public:
 
     std::vector<std::string> listFiles();
     bool deleteFile(const std::string& fileId);
+    bool deleteAllFiles();
 
     int getProgress(const std::string& fileId);
+    void waitForBackgroundTasks();
 
 private:
     std::string metadataPath(const std::string& fileId) const;
     std::string metadataDir() const;
+    void startBackgroundMaintenance();
+    void runBackgroundMaintenance();
 
     std::string storageRoot_;
+    std::mutex maintenanceMutex_;
+    std::thread maintenanceThread_;
 };

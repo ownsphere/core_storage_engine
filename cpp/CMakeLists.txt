@@ -16,6 +16,7 @@ if(NOT DEFINED OPENSSL_ROOT_DIR)
 endif()
 
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 
 # ---------------- CORE LIBRARY ----------------
 add_library(engine_lib
@@ -28,7 +29,7 @@ add_library(engine_lib
     src/utils/logger.cpp
 )
 
-target_link_libraries(engine_lib PUBLIC OpenSSL::Crypto)
+target_link_libraries(engine_lib PUBLIC OpenSSL::Crypto Threads::Threads)
 
 # ---------------- MAIN EXECUTABLE ----------------
 add_executable(engine
@@ -62,15 +63,20 @@ gtest_discover_tests(runTests)
 if(ENABLE_COVERAGE)
     message(STATUS "Coverage enabled")
 
+    set(COVERAGE_COMPILE_FLAGS --coverage -O0 -g)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        list(APPEND COVERAGE_COMPILE_FLAGS -fprofile-update=atomic)
+    endif()
+
     # engine_lib
-    target_compile_options(engine_lib PRIVATE --coverage -O0 -g)
+    target_compile_options(engine_lib PRIVATE ${COVERAGE_COMPILE_FLAGS})
     target_link_options(engine_lib PRIVATE --coverage)
 
     # runTests
-    target_compile_options(runTests PRIVATE --coverage -O0 -g)
+    target_compile_options(runTests PRIVATE ${COVERAGE_COMPILE_FLAGS})
     target_link_options(runTests PRIVATE --coverage)
 
-    # 🔥 FIX: engine also needs coverage
-    target_compile_options(engine PRIVATE --coverage -O0 -g)
+    # engine also needs coverage
+    target_compile_options(engine PRIVATE ${COVERAGE_COMPILE_FLAGS})
     target_link_options(engine PRIVATE --coverage)
 endif()
