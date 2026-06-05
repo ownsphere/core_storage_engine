@@ -27,9 +27,24 @@ add_library(engine_lib
     src/crypto/checksum.cpp
     src/crypto/encryption.cpp
     src/utils/logger.cpp
+    src/bridge.cpp
 )
 
 target_link_libraries(engine_lib PUBLIC OpenSSL::Crypto Threads::Threads)
+
+# Build shared library for dynamic linking (e.g., from Go via cgo)
+add_library(engine_lib_shared SHARED
+    src/engine/storage_engine.cpp
+    src/storage/chunk_manager.cpp
+    src/storage/metadata_manager.cpp
+    src/storage/write_ahead_log.cpp
+    src/crypto/checksum.cpp
+    src/crypto/encryption.cpp
+    src/utils/logger.cpp
+    src/bridge.cpp
+)
+
+target_link_libraries(engine_lib_shared PUBLIC OpenSSL::Crypto Threads::Threads)
 
 # ---------------- MAIN EXECUTABLE ----------------
 add_executable(engine
