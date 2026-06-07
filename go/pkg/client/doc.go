@@ -1,3 +1,3 @@
 package client
 
-// Package client contains reusable client-facing APIs for OwnSphere services.
+// Package client exposes a clean Go-facing storage API over the native bridge.
