@@ -29,5 +29,15 @@ jobs:
       - name: Build
         run: ./scripts/build_cpp.sh
 
+      - name: Run C++ Unit Tests
+        run: |
+          cd cpp/build
+          ./runTests --gtest_color=yes
+
+      - name: Run Bridge Tests Specifically
+        run: |
+          cd cpp/build
+          ./runTests --gtest_filter="CBridgeTest.*" --gtest_color=yes
+
       - name: Generate Coverage
         run: ./scripts/generate_cpp_coverage.sh
