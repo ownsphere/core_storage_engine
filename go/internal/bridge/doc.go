@@ -1,3 +1,3 @@
 package bridge
 
-// Package bridge contains integration points between Go and the native engine.
+// Package bridge exposes the native storage engine through cgo-backed Go types.
