@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package ownsphere.storage.v1;
+
+option go_package = "github.com/ownsphere/core_storage_engine/go/internal/api/storagepb;storagepb";
+
+import "google/protobuf/empty.proto";
+
+service StorageEngineService {
+  rpc StoreFile(StoreFileRequest) returns (google.protobuf.Empty);
+  rpc RetrieveFile(RetrieveFileRequest) returns (google.protobuf.Empty);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc DeleteFile(DeleteFileRequest) returns (google.protobuf.Empty);
+  rpc DeleteAllFiles(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc GetProgress(GetProgressRequest) returns (GetProgressResponse);
+  rpc WaitForBackgroundTasks(WaitForBackgroundTasksRequest) returns (google.protobuf.Empty);
+}
+
+message StoreFileRequest {
+  string source_path = 1;
+  string file_id = 2;
+}
+
+message RetrieveFileRequest {
+  string file_id = 1;
+  string output_path = 2;
+}
+
+message ListFilesRequest {}
+
+message ListFilesResponse {
+  repeated string file_ids = 1;
+}
+
+message DeleteFileRequest {
+  string file_id = 1;
+}
+
+message GetProgressRequest {
+  string file_id = 1;
+}
+
+message GetProgressResponse {
+  int32 percent = 1;
+}
+
+message WaitForBackgroundTasksRequest {}

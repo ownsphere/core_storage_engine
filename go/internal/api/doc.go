@@ -1,3 +1,3 @@
 package api
 
-// Package api contains transport and handler scaffolding for the Go service.
+// Package api contains gRPC transport handlers for the Go storage service.
