@@ -45,17 +45,23 @@ Current capabilities in the native engine:
 - Progress reporting
 - GoogleTest-based test coverage
 
-## Go Service Scaffold
+## Go Service Layer
 
-The Go layer is now structured for:
+The Go layer is now organized as:
 
 - `cmd/server/` for the executable entrypoint
-- `internal/api/` for handlers and transport logic
+- `internal/api/` for gRPC transport handlers and protobuf bindings
 - `internal/service/` for orchestration/business logic
 - `internal/bridge/` for integration with the native engine
-- `pkg/client/` for any external client SDK
+- `pkg/client/` for the Go-facing storage client wrapper
 
-The current server is a lightweight scaffold so the directory layout is ready before the real API implementation lands.
+Current Go capabilities include:
+
+- cgo bridge bindings for the native storage engine
+- a Go client wrapper for storage operations
+- a service layer for validation and orchestration
+- a gRPC API for store, retrieve, list, delete, progress, and background task operations
+- gRPC health checks and server reflection
 
 ## Build and Run
 
@@ -65,11 +71,23 @@ Build the C++ engine:
 ./scripts/build_cpp.sh
 ```
 
-Run the Go server scaffold:
+Run Go tests:
+
+```bash
+cd go
+go test ./...
+```
+
+Run the Go gRPC server:
 
 ```bash
 ./scripts/run_server.sh
 ```
+
+Optional environment variables:
+
+- `PORT` to change the gRPC listen port. Default: `8080`
+- `STORAGE_ROOT` to override the native engine storage root
 
 Run C++ tests from the generated build directory:
 
@@ -102,3 +120,4 @@ For the C++ layer you will need:
 For the Go layer you will need:
 
 - Go 1.22 or newer
+- Access to Go modules for `google.golang.org/grpc` and `google.golang.org/protobuf`
