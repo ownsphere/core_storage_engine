@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestClientStoreAndRetrieveFileIntegration(t *testing.T) {
@@ -37,6 +38,33 @@ func TestClientStoreAndRetrieveFileIntegration(t *testing.T) {
 	}()
 
 	const fileID = "integration-file"
+	uploadedAt := time.Unix(1710000000, 0).UTC()
+	metadata, err := client.StoreFileWithMetadata(ctx, sourcePath, fileID, StoreFileOptions{
+		OriginalFilename: "vacation.txt",
+		ContentType:      "text/plain",
+		UploadedAt:       uploadedAt,
+	})
+	if err != nil {
+		t.Fatalf("StoreFileWithMetadata() error = %v", err)
+	}
+	if metadata.OriginalFilename != "vacation.txt" || metadata.ContentType != "text/plain" {
+		t.Fatalf("unexpected stored metadata: %#v", metadata)
+	}
+	if !metadata.UploadedAt.Equal(uploadedAt) {
+		t.Fatalf("unexpected uploadedAt: %v", metadata.UploadedAt)
+	}
+	if metadata.Checksum == "" {
+		t.Fatalf("expected checksum to be populated")
+	}
+
+	storedMetadata, err := client.GetFileMetadata(ctx, fileID)
+	if err != nil {
+		t.Fatalf("GetFileMetadata() error = %v", err)
+	}
+	if storedMetadata.StorageKey != fileID {
+		t.Fatalf("unexpected storage key: %#v", storedMetadata)
+	}
+
 	if err := client.StoreFile(ctx, sourcePath, fileID); err != nil {
 		t.Fatalf("StoreFile() error = %v", err)
 	}

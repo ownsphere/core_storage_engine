@@ -10,6 +10,7 @@ service StorageEngineService {
   rpc StoreFile(StoreFileRequest) returns (google.protobuf.Empty);
   rpc RetrieveFile(RetrieveFileRequest) returns (google.protobuf.Empty);
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc GetFileMetadata(GetFileMetadataRequest) returns (GetFileMetadataResponse);
   rpc DeleteFile(DeleteFileRequest) returns (google.protobuf.Empty);
   rpc DeleteAllFiles(google.protobuf.Empty) returns (google.protobuf.Empty);
   rpc GetProgress(GetProgressRequest) returns (GetProgressResponse);
@@ -19,6 +20,11 @@ service StorageEngineService {
 message StoreFileRequest {
   string source_path = 1;
   string file_id = 2;
+  string original_filename = 3;
+  string extension = 4;
+  string content_type = 5;
+  string checksum = 6;
+  int64 uploaded_at_unix_ms = 7;
 }
 
 message RetrieveFileRequest {
@@ -30,6 +36,26 @@ message ListFilesRequest {}
 
 message ListFilesResponse {
   repeated string file_ids = 1;
+  repeated FileMetadata files = 2;
+}
+
+message FileMetadata {
+  string file_id = 1;
+  string storage_key = 2;
+  string original_filename = 3;
+  string extension = 4;
+  string content_type = 5;
+  int64 file_size = 6;
+  string checksum = 7;
+  int64 uploaded_at_unix_ms = 8;
+}
+
+message GetFileMetadataRequest {
+  string file_id = 1;
+}
+
+message GetFileMetadataResponse {
+  FileMetadata metadata = 1;
 }
 
 message DeleteFileRequest {

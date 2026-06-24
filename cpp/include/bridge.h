@@ -46,6 +46,16 @@ bool storage_engine_store_file(StorageEngineHandle engine,
                                const char* fileId,
                                StorageEngineProgressCallback callback);
 
+bool storage_engine_store_file_with_metadata(StorageEngineHandle engine,
+                                             const char* filePath,
+                                             const char* fileId,
+                                             const char* originalFilename,
+                                             const char* extension,
+                                             const char* contentType,
+                                             const char* checksum,
+                                             long long uploadedAtEpochMs,
+                                             StorageEngineProgressCallback callback);
+
 /**
  * Retrieve a file from the storage engine
  *
@@ -59,6 +69,9 @@ bool storage_engine_retrieve_file(StorageEngineHandle engine,
                                   const char* fileId,
                                   const char* outputPath,
                                   StorageEngineProgressCallback callback);
+
+char* storage_engine_get_file_metadata_json(StorageEngineHandle engine, const char* fileId);
+void storage_engine_free_string(char* value);
 
 /**
  * List all stored files

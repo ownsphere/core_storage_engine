@@ -52,19 +52,32 @@ func (s *StorageService) Close() error {
 
 // StoreFile validates the request and stores a file under the provided file ID.
 func (s *StorageService) StoreFile(ctx context.Context, sourcePath, fileID string) error {
+	_, err := s.StoreFileWithMetadata(ctx, sourcePath, fileID, clientpkg.StoreFileOptions{})
+	return err
+}
+
+// StoreFileWithMetadata validates the request and stores a file together with user-facing metadata.
+func (s *StorageService) StoreFileWithMetadata(ctx context.Context, sourcePath, fileID string, options clientpkg.StoreFileOptions) (clientpkg.FileMetadata, error) {
 	if err := ctxErr(ctx); err != nil {
-		return err
+		return clientpkg.FileMetadata{}, err
 	}
 	if strings.TrimSpace(sourcePath) == "" {
-		return ErrEmptySourcePath
+		return clientpkg.FileMetadata{}, ErrEmptySourcePath
 	}
 	if strings.TrimSpace(fileID) == "" {
-		return ErrEmptyFileID
+		return clientpkg.FileMetadata{}, ErrEmptyFileID
 	}
 
-	return s.withStorageRead(func(storage clientpkg.Storage) error {
-		return storage.StoreFile(ctx, sourcePath, fileID)
+	var metadata clientpkg.FileMetadata
+	err := s.withStorageRead(func(storage clientpkg.Storage) error {
+		var err error
+		metadata, err = storage.StoreFileWithMetadata(ctx, sourcePath, fileID, options)
+		return err
 	})
+	if err != nil {
+		return clientpkg.FileMetadata{}, err
+	}
+	return metadata, nil
 }
 
 // RetrieveFile validates the request and reconstructs a stored file.
@@ -101,6 +114,47 @@ func (s *StorageService) ListFiles(ctx context.Context) ([]string, error) {
 	}
 
 	return files, nil
+}
+
+// ListFileMetadata returns metadata for every tracked file.
+func (s *StorageService) ListFileMetadata(ctx context.Context) ([]clientpkg.FileMetadata, error) {
+	if err := ctxErr(ctx); err != nil {
+		return nil, err
+	}
+
+	var files []clientpkg.FileMetadata
+	err := s.withStorageRead(func(storage clientpkg.Storage) error {
+		var err error
+		files, err = storage.ListFileMetadata(ctx)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return files, nil
+}
+
+// GetFileMetadata returns metadata for a single tracked file.
+func (s *StorageService) GetFileMetadata(ctx context.Context, fileID string) (clientpkg.FileMetadata, error) {
+	if err := ctxErr(ctx); err != nil {
+		return clientpkg.FileMetadata{}, err
+	}
+	if strings.TrimSpace(fileID) == "" {
+		return clientpkg.FileMetadata{}, ErrEmptyFileID
+	}
+
+	var metadata clientpkg.FileMetadata
+	err := s.withStorageRead(func(storage clientpkg.Storage) error {
+		var err error
+		metadata, err = storage.GetFileMetadata(ctx, fileID)
+		return err
+	})
+	if err != nil {
+		return clientpkg.FileMetadata{}, err
+	}
+
+	return metadata, nil
 }
 
 // DeleteFile validates the request and removes one stored file.

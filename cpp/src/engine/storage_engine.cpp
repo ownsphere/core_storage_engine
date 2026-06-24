@@ -15,6 +15,7 @@
 #include <atomic>
 #include <set>
 #include <exception>
+#include <cctype>
 
 static std::unordered_map<std::string, int> progressMap;
 static std::mutex progressMutex;
@@ -95,6 +96,98 @@ void collectGarbageChunks(const std::string& storageRoot) {
         }
     }
 }
+
+std::string normalizeExtension(const std::string& extension) {
+    if (extension.empty()) {
+        return "";
+    }
+    if (extension.front() == '.') {
+        return extension.substr(1);
+    }
+    return extension;
+}
+
+std::string lowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+std::string inferContentType(const std::string& filename, const std::string& extension) {
+    static const std::unordered_map<std::string, std::string> contentTypes = {
+        {"txt", "text/plain"},
+        {"json", "application/json"},
+        {"pdf", "application/pdf"},
+        {"png", "image/png"},
+        {"jpg", "image/jpeg"},
+        {"jpeg", "image/jpeg"},
+        {"gif", "image/gif"},
+        {"webp", "image/webp"},
+        {"svg", "image/svg+xml"},
+        {"csv", "text/csv"},
+        {"xml", "application/xml"},
+        {"html", "text/html"},
+        {"htm", "text/html"},
+        {"mp4", "video/mp4"},
+        {"mov", "video/quicktime"},
+        {"mp3", "audio/mpeg"},
+        {"wav", "audio/wav"},
+        {"zip", "application/zip"},
+        {"gz", "application/gzip"},
+    };
+
+    std::string candidateExtension = normalizeExtension(extension);
+    if (candidateExtension.empty()) {
+        const std::filesystem::path path(filename);
+        if (path.has_extension()) {
+            candidateExtension = normalizeExtension(path.extension().string());
+        }
+    }
+
+    const auto it = contentTypes.find(lowerCopy(candidateExtension));
+    if (it != contentTypes.end()) {
+        return it->second;
+    }
+    return "application/octet-stream";
+}
+
+FileMetadata buildStoredMetadata(const std::string& filePath,
+                                 const std::string& fileId,
+                                 const StoreFileOptions& options,
+                                 size_t fileSize,
+                                 const std::string& checksum,
+                                 const std::vector<ChunkInfo>& chunks) {
+    FileMetadata metadata;
+    metadata.fileId = fileId;
+    metadata.storageKey = fileId;
+    metadata.originalFilename = options.originalFilename.empty()
+        ? std::filesystem::path(filePath).filename().string()
+        : options.originalFilename;
+    if (metadata.originalFilename.empty()) {
+        metadata.originalFilename = fileId;
+    }
+
+    metadata.extension = normalizeExtension(options.extension);
+    if (metadata.extension.empty()) {
+        const std::filesystem::path filename(metadata.originalFilename);
+        if (filename.has_extension()) {
+            metadata.extension = normalizeExtension(filename.extension().string());
+        }
+    }
+
+    metadata.contentType = options.contentType.empty()
+        ? inferContentType(metadata.originalFilename, metadata.extension)
+        : options.contentType;
+    metadata.checksum = checksum;
+    metadata.uploadedAtEpochMs = options.uploadedAtEpochMs > 0
+        ? options.uploadedAtEpochMs
+        : std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count();
+    metadata.fileSize = fileSize;
+    metadata.chunks = chunks;
+    return metadata;
+}
 }
 
 std::string formatTime(std::chrono::system_clock::time_point tp) {
@@ -165,6 +258,13 @@ std::string StorageEngine::metadataDir() const {
 
 // ======================= WRITE =======================
 bool StorageEngine::storeFile(const std::string &filePath, const std::string &fileId, ProgressCallback progressCallback){
+    return storeFile(filePath, fileId, StoreFileOptions{}, progressCallback);
+}
+
+bool StorageEngine::storeFile(const std::string &filePath,
+                              const std::string &fileId,
+                              const StoreFileOptions& options,
+                              ProgressCallback progressCallback){
     auto fileLock = lockFileOperation(storageRoot_, fileId);
 
     // ✅ START TIME
@@ -186,6 +286,8 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
     size_t fileSize = in.tellg();
     in.seekg(0);
 
+    ChecksumState fullFileChecksum;
+
     if (fileSize == 0) {
         std::vector<std::string> oldChunkIds;
         for (const auto& chunk : metadataManager.loadChunks(fileId)) {
@@ -204,8 +306,14 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
         }
 
         std::vector<ChunkInfo> emptyChunks;
+        const std::string checksum = fullFileChecksum.finalize();
+        if (!options.checksum.empty() && options.checksum != checksum) {
+            LOG_ERROR("Provided checksum does not match file contents for empty file: " + fileId);
+            return false;
+        }
 
-        if (!metadataManager.saveMetadata(fileId, emptyChunks, 0)) {
+        FileMetadata metadata = buildStoredMetadata(filePath, fileId, options, 0, checksum, emptyChunks);
+        if (!metadataManager.saveMetadata(metadata)) {
             LOG_ERROR("Failed to save metadata for empty file: " + fileId);
             return false;
         }
@@ -261,6 +369,7 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
         buffer.resize(bytesRead);
 
         std::string checksum = computeChecksum(buffer);
+        fullFileChecksum.update(buffer);
         std::string chunkId = checksum;
 
         ChunkInfo info;
@@ -313,7 +422,14 @@ bool StorageEngine::storeFile(const std::string &filePath, const std::string &fi
         return false;
     }
 
-    if (!metadataManager.saveMetadata(fileId, chunkInfos, fileSize)) {
+    const std::string fileChecksum = fullFileChecksum.finalize();
+    if (!options.checksum.empty() && options.checksum != fileChecksum) {
+        LOG_ERROR("Provided checksum does not match file contents for file: " + fileId);
+        return false;
+    }
+
+    FileMetadata metadata = buildStoredMetadata(filePath, fileId, options, fileSize, fileChecksum, chunkInfos);
+    if (!metadataManager.saveMetadata(metadata)) {
         LOG_ERROR("Failed to save metadata: " + fileId);
         return false;
     }
@@ -430,6 +546,11 @@ bool StorageEngine::retrieveFile(const std::string &fileId,  const std::string &
     out.close();
     LOG_INFO("File reconstructed: " + outputPath);
     return true;
+}
+
+bool StorageEngine::getFileMetadata(const std::string& fileId, FileMetadata& metadata) {
+    MetadataManager metadataManager(storageRoot_);
+    return metadataManager.loadMetadata(fileId, metadata);
 }
 
 // ======================= DELETE =======================
