@@ -185,7 +185,24 @@ bool WriteAheadLog::recoverPending(MetadataManager& metadataManager,
         }
 
         if (entry.state == WalState::Applying) {
-            if (!metadataManager.saveMetadata(entry.fileId, entry.newChunks, entry.fileSize)) {
+            FileMetadata metadata;
+            metadata.fileId = entry.fileId;
+            metadata.storageKey = entry.fileId;
+            metadata.originalFilename = entry.fileId;
+            metadata.contentType = "application/octet-stream";
+            metadata.fileSize = entry.fileSize;
+            metadata.chunks = entry.newChunks;
+
+            FileMetadata previousMetadata;
+            if (metadataManager.loadMetadata(entry.fileId, previousMetadata)) {
+                metadata.originalFilename = previousMetadata.originalFilename;
+                metadata.extension = previousMetadata.extension;
+                metadata.contentType = previousMetadata.contentType;
+                metadata.checksum = previousMetadata.checksum;
+                metadata.uploadedAtEpochMs = previousMetadata.uploadedAtEpochMs;
+            }
+
+            if (!metadataManager.saveMetadata(metadata)) {
                 allRecovered = false;
                 continue;
             }

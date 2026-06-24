@@ -297,6 +297,85 @@ TEST(StorageEngineTest, OverwriteTracksMetadataVersions) {
     cleanupDirectory(storageRoot);
 }
 
+TEST(StorageEngineTest, StorePersistsUserFacingMetadata) {
+    const std::string storageRoot = makeStorageRoot();
+    StorageEngine engine(storageRoot);
+    MetadataManager metadataManager(storageRoot);
+
+    const std::string input = "metadata_image.png";
+    const std::string fileId = uniqueId();
+    const std::string contents = "fake png bytes";
+    createFile(input, contents);
+
+    StoreFileOptions options;
+    options.originalFilename = "holiday-photo.png";
+    options.contentType = "image/png";
+    options.uploadedAtEpochMs = 1710000000123;
+
+    ASSERT_TRUE(engine.storeFile(input, fileId, options));
+
+    FileMetadata metadata;
+    ASSERT_TRUE(metadataManager.loadMetadata(fileId, metadata));
+    EXPECT_EQ(metadata.fileId, fileId);
+    EXPECT_EQ(metadata.storageKey, fileId);
+    EXPECT_EQ(metadata.originalFilename, "holiday-photo.png");
+    EXPECT_EQ(metadata.extension, "png");
+    EXPECT_EQ(metadata.contentType, "image/png");
+    EXPECT_EQ(metadata.fileSize, contents.size());
+    EXPECT_EQ(metadata.checksum, computeChecksum(toBytes(contents)));
+    EXPECT_EQ(metadata.uploadedAtEpochMs, 1710000000123);
+
+    cleanup(input);
+    cleanupDirectory(storageRoot);
+}
+
+TEST(StorageEngineTest, MetadataSurvivesRestartAndLegacyRecordsRemainReadable) {
+    const std::string storageRoot = makeStorageRoot();
+    const std::string input = "restart_metadata.txt";
+    const std::string fileId = uniqueId();
+    const std::string output = "restart_metadata_out.txt";
+    createFile(input, "restart-safe");
+
+    {
+        StorageEngine engine(storageRoot);
+        StoreFileOptions options;
+        options.originalFilename = "restart-safe.txt";
+        ASSERT_TRUE(engine.storeFile(input, fileId, options));
+    }
+
+    {
+        StorageEngine restarted(storageRoot);
+        FileMetadata metadata;
+        ASSERT_TRUE(restarted.getFileMetadata(fileId, metadata));
+        EXPECT_EQ(metadata.originalFilename, "restart-safe.txt");
+        EXPECT_EQ(metadata.extension, "txt");
+        EXPECT_EQ(metadata.storageKey, fileId);
+        ASSERT_TRUE(restarted.retrieveFile(fileId, output));
+        EXPECT_EQ(readFile(output), "restart-safe");
+    }
+
+    MetadataManager metadataManager(storageRoot);
+    const std::string legacyFileId = uniqueId();
+    const std::string legacyPath = metadataManager.metadataPath(legacyFileId);
+    std::filesystem::create_directories(std::filesystem::path(legacyPath).parent_path());
+    {
+        std::ofstream legacyOut(legacyPath);
+        legacyOut << "0\n";
+    }
+
+    FileMetadata legacyMetadata;
+    ASSERT_TRUE(metadataManager.loadMetadata(legacyFileId, legacyMetadata));
+    EXPECT_EQ(legacyMetadata.fileId, legacyFileId);
+    EXPECT_EQ(legacyMetadata.storageKey, legacyFileId);
+    EXPECT_EQ(legacyMetadata.originalFilename, legacyFileId);
+    EXPECT_EQ(legacyMetadata.extension, "");
+    EXPECT_EQ(legacyMetadata.contentType, "application/octet-stream");
+
+    cleanup(input);
+    cleanup(output);
+    cleanupDirectory(storageRoot);
+}
+
 TEST(StorageEngineTest, IdenticalFilesReuseChunkStorage) {
     const std::string storageRoot = makeStorageRoot();
     StorageEngine engine(storageRoot);

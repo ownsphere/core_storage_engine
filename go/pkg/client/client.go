@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	bridgepkg "github.com/ownsphere/core_storage_engine/go/internal/bridge"
 )
@@ -19,8 +20,11 @@ var (
 type Storage interface {
 	Close() error
 	StoreFile(ctx context.Context, sourcePath, fileID string) error
+	StoreFileWithMetadata(ctx context.Context, sourcePath, fileID string, options StoreFileOptions) (FileMetadata, error)
 	RetrieveFile(ctx context.Context, fileID, outputPath string) error
 	ListFiles(ctx context.Context) ([]string, error)
+	ListFileMetadata(ctx context.Context) ([]FileMetadata, error)
+	GetFileMetadata(ctx context.Context, fileID string) (FileMetadata, error)
 	DeleteFile(ctx context.Context, fileID string) error
 	DeleteAllFiles(ctx context.Context) error
 	Progress(ctx context.Context, fileID string) (int, error)
@@ -30,8 +34,10 @@ type Storage interface {
 type engine interface {
 	Close() error
 	StoreFile(filePath, fileID string) error
+	StoreFileWithMetadata(filePath, fileID string, options bridgepkg.StoreFileOptions) (bridgepkg.FileMetadata, error)
 	RetrieveFile(fileID, outputPath string) error
 	ListFiles() ([]string, error)
+	GetFileMetadata(fileID string) (bridgepkg.FileMetadata, error)
 	DeleteFile(fileID string) error
 	DeleteAllFiles() error
 	Progress(fileID string) (int, error)
@@ -41,6 +47,25 @@ type engine interface {
 // Config controls how the storage client initializes the native engine.
 type Config struct {
 	StorageRoot string
+}
+
+type StoreFileOptions struct {
+	OriginalFilename string
+	Extension        string
+	ContentType      string
+	Checksum         string
+	UploadedAt       time.Time
+}
+
+type FileMetadata struct {
+	FileID           string
+	StorageKey       string
+	OriginalFilename string
+	Extension        string
+	ContentType      string
+	FileSize         int64
+	Checksum         string
+	UploadedAt       time.Time
 }
 
 // Client is the Go-facing wrapper around the native storage engine bridge.
@@ -73,24 +98,41 @@ func (c *Client) Close() error {
 
 // StoreFile persists a source file under the provided file ID.
 func (c *Client) StoreFile(ctx context.Context, sourcePath, fileID string) error {
+	_, err := c.StoreFileWithMetadata(ctx, sourcePath, fileID, StoreFileOptions{})
+	return err
+}
+
+// StoreFileWithMetadata persists a source file together with user-facing metadata.
+func (c *Client) StoreFileWithMetadata(ctx context.Context, sourcePath, fileID string, options StoreFileOptions) (FileMetadata, error) {
 	if err := ctxErr(ctx); err != nil {
-		return err
+		return FileMetadata{}, err
 	}
 	if err := c.ready(); err != nil {
-		return err
+		return FileMetadata{}, err
 	}
 	if strings.TrimSpace(sourcePath) == "" {
-		return ErrEmptySourcePath
+		return FileMetadata{}, ErrEmptySourcePath
 	}
 	if strings.TrimSpace(fileID) == "" {
-		return ErrEmptyFileID
+		return FileMetadata{}, ErrEmptyFileID
 	}
 
-	if err := c.engine.StoreFile(sourcePath, fileID); err != nil {
-		return err
+	metadata, err := c.engine.StoreFileWithMetadata(sourcePath, fileID, bridgepkg.StoreFileOptions{
+		OriginalFilename: options.OriginalFilename,
+		Extension:        options.Extension,
+		ContentType:      options.ContentType,
+		Checksum:         options.Checksum,
+		UploadedAt:       options.UploadedAt,
+	})
+	if err != nil {
+		return FileMetadata{}, err
 	}
 
-	return ctxErr(ctx)
+	if err := ctxErr(ctx); err != nil {
+		return FileMetadata{}, err
+	}
+
+	return fromBridgeMetadata(metadata), nil
 }
 
 // RetrieveFile reconstructs a stored file at the provided output path.
@@ -130,6 +172,48 @@ func (c *Client) ListFiles(ctx context.Context) ([]string, error) {
 	}
 
 	return files, ctxErr(ctx)
+}
+
+// ListFileMetadata returns user-facing metadata for every tracked file.
+func (c *Client) ListFileMetadata(ctx context.Context) ([]FileMetadata, error) {
+	fileIDs, err := c.ListFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := make([]FileMetadata, 0, len(fileIDs))
+	for _, fileID := range fileIDs {
+		item, err := c.GetFileMetadata(ctx, fileID)
+		if err != nil {
+			return nil, err
+		}
+		metadata = append(metadata, item)
+	}
+	return metadata, nil
+}
+
+// GetFileMetadata returns persisted metadata for one stored file.
+func (c *Client) GetFileMetadata(ctx context.Context, fileID string) (FileMetadata, error) {
+	if err := ctxErr(ctx); err != nil {
+		return FileMetadata{}, err
+	}
+	if err := c.ready(); err != nil {
+		return FileMetadata{}, err
+	}
+	if strings.TrimSpace(fileID) == "" {
+		return FileMetadata{}, ErrEmptyFileID
+	}
+
+	metadata, err := c.engine.GetFileMetadata(fileID)
+	if err != nil {
+		return FileMetadata{}, err
+	}
+
+	if err := ctxErr(ctx); err != nil {
+		return FileMetadata{}, err
+	}
+
+	return fromBridgeMetadata(metadata), nil
 }
 
 // DeleteFile removes a stored file and its metadata.
@@ -215,4 +299,22 @@ func (c *Client) ready() error {
 		return ErrNotInitialized
 	}
 	return nil
+}
+
+func fromBridgeMetadata(metadata bridgepkg.FileMetadata) FileMetadata {
+	var uploadedAt time.Time
+	if metadata.UploadedAtEpochMs > 0 {
+		uploadedAt = time.UnixMilli(metadata.UploadedAtEpochMs).UTC()
+	}
+
+	return FileMetadata{
+		FileID:           metadata.FileID,
+		StorageKey:       metadata.StorageKey,
+		OriginalFilename: metadata.OriginalFilename,
+		Extension:        metadata.Extension,
+		ContentType:      metadata.ContentType,
+		FileSize:         metadata.FileSize,
+		Checksum:         metadata.Checksum,
+		UploadedAt:       uploadedAt,
+	}
 }

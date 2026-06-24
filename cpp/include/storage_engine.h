@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -6,10 +7,18 @@
 #include <functional>
 
 #include "models/chunk_info.h"
+#include "metadata_manager.h"
 
 using ProgressCallback = std::function<void(int)>;
 
-// ✅ ADD THIS
+struct StoreFileOptions {
+    std::string originalFilename;
+    std::string extension;
+    std::string contentType;
+    std::string checksum;
+    std::int64_t uploadedAtEpochMs = 0;
+};
+
 class StorageEngine {
 public:
     explicit StorageEngine(std::string storageRoot = "data");
@@ -21,10 +30,15 @@ public:
     bool storeFile(const std::string& filePath,
                    const std::string& fileId,
                    ProgressCallback progressCallback = nullptr);
+    bool storeFile(const std::string& filePath,
+                   const std::string& fileId,
+                   const StoreFileOptions& options,
+                   ProgressCallback progressCallback = nullptr);
 
     bool retrieveFile(const std::string& fileId,
                       const std::string& outputPath,
                       ProgressCallback progressCallback = nullptr);
+    bool getFileMetadata(const std::string& fileId, FileMetadata& metadata);
 
     std::vector<std::string> listFiles();
     bool deleteFile(const std::string& fileId);

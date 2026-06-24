@@ -6,8 +6,15 @@
 #include "models/chunk_info.h"
 
 struct FileMetadata {
+    std::string fileId;
+    std::string storageKey;
+    std::string originalFilename;
+    std::string extension;
+    std::string contentType;
+    std::string checksum;
     std::string versionId;
     std::string previousVersionId;
+    std::int64_t uploadedAtEpochMs = 0;
     std::int64_t createdAtEpochMs = 0;
     size_t fileSize = 0;
     std::vector<ChunkInfo> chunks;
@@ -17,9 +24,7 @@ class MetadataManager {
 public:
     explicit MetadataManager(std::string storageRoot = "data");
 
-    bool saveMetadata(const std::string& fileId,
-                      const std::vector<ChunkInfo>& chunks,
-                      size_t size);
+    bool saveMetadata(const FileMetadata& metadata);
 
     bool loadMetadata(const std::string& fileId, FileMetadata& metadata);
     bool loadMetadataVersion(const std::string& fileId,

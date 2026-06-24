@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	addr := ":8080"
+	addr := ":9090"
 	if port := os.Getenv("PORT"); port != "" {
 		addr = ":" + port
 	}

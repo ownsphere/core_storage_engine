@@ -5,6 +5,59 @@
 #include <memory>
 #include <string>
 #include <cstring>
+#include <cstdlib>
+
+namespace {
+std::string escapeJSONString(const std::string& value) {
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (char ch : value) {
+        switch (ch) {
+            case '\\':
+                escaped += "\\\\";
+                break;
+            case '"':
+                escaped += "\\\"";
+                break;
+            case '\n':
+                escaped += "\\n";
+                break;
+            case '\r':
+                escaped += "\\r";
+                break;
+            case '\t':
+                escaped += "\\t";
+                break;
+            default:
+                escaped.push_back(ch);
+                break;
+        }
+    }
+    return escaped;
+}
+
+char* duplicateCString(const std::string& value) {
+    char* result = static_cast<char*>(std::malloc(value.size() + 1));
+    if (result == nullptr) {
+        return nullptr;
+    }
+    std::memcpy(result, value.c_str(), value.size() + 1);
+    return result;
+}
+
+std::string metadataToJSON(const FileMetadata& metadata) {
+    return "{"
+        "\"file_id\":\"" + escapeJSONString(metadata.fileId) + "\","
+        "\"storage_key\":\"" + escapeJSONString(metadata.storageKey) + "\","
+        "\"original_filename\":\"" + escapeJSONString(metadata.originalFilename) + "\","
+        "\"extension\":\"" + escapeJSONString(metadata.extension) + "\","
+        "\"content_type\":\"" + escapeJSONString(metadata.contentType) + "\","
+        "\"file_size\":" + std::to_string(metadata.fileSize) + ","
+        "\"checksum\":\"" + escapeJSONString(metadata.checksum) + "\","
+        "\"uploaded_at_epoch_ms\":" + std::to_string(metadata.uploadedAtEpochMs) +
+        "}";
+}
+}
 
 /**
  * Internal wrapper structure to hold C++ StorageEngine and error state
@@ -69,6 +122,27 @@ bool storage_engine_store_file(StorageEngineHandle engine,
                                const char* filePath,
                                const char* fileId,
                                StorageEngineProgressCallback callback) {
+    return storage_engine_store_file_with_metadata(
+        engine,
+        filePath,
+        fileId,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        0,
+        callback);
+}
+
+bool storage_engine_store_file_with_metadata(StorageEngineHandle engine,
+                                             const char* filePath,
+                                             const char* fileId,
+                                             const char* originalFilename,
+                                             const char* extension,
+                                             const char* contentType,
+                                             const char* checksum,
+                                             long long uploadedAtEpochMs,
+                                             StorageEngineProgressCallback callback) {
     if (!engine || !filePath || !fileId) {
         return false;
     }
@@ -85,11 +159,22 @@ bool storage_engine_store_file(StorageEngineHandle engine,
             cpp_callback = invoke_c_callback;
         }
 
-        bool result = wrapper->engine->storeFile(
-            std::string(filePath),
-            std::string(fileId),
-            cpp_callback
-        );
+        StoreFileOptions options;
+        if (originalFilename) {
+            options.originalFilename = originalFilename;
+        }
+        if (extension) {
+            options.extension = extension;
+        }
+        if (contentType) {
+            options.contentType = contentType;
+        }
+        if (checksum) {
+            options.checksum = checksum;
+        }
+        options.uploadedAtEpochMs = uploadedAtEpochMs;
+
+        bool result = wrapper->engine->storeFile(std::string(filePath), std::string(fileId), options, cpp_callback);
 
         // Clear thread-local callback
         g_current_callback = nullptr;
@@ -137,6 +222,29 @@ bool storage_engine_retrieve_file(StorageEngineHandle engine,
         wrapper->setError(e.what());
         return false;
     }
+}
+
+char* storage_engine_get_file_metadata_json(StorageEngineHandle engine, const char* fileId) {
+    if (!engine || !fileId) {
+        return nullptr;
+    }
+
+    try {
+        StorageEngineWrapper* wrapper = static_cast<StorageEngineWrapper*>(engine);
+        FileMetadata metadata;
+        if (!wrapper->engine->getFileMetadata(std::string(fileId), metadata)) {
+            return nullptr;
+        }
+        return duplicateCString(metadataToJSON(metadata));
+    } catch (const std::exception& e) {
+        StorageEngineWrapper* wrapper = static_cast<StorageEngineWrapper*>(engine);
+        wrapper->setError(e.what());
+        return nullptr;
+    }
+}
+
+void storage_engine_free_string(char* value) {
+    std::free(value);
 }
 
 char** storage_engine_list_files(StorageEngineHandle engine, int* count) {
@@ -271,4 +379,3 @@ const char* storage_engine_get_error(StorageEngineHandle engine) {
         return nullptr;
     }
 }
-

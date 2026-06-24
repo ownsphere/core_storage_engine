@@ -88,8 +88,25 @@ bool isNumber(const std::string& value) {
     });
 }
 
+std::string normalizeExtension(const std::string& extension) {
+    if (extension.empty()) {
+        return "";
+    }
+    if (extension.front() == '.') {
+        return extension.substr(1);
+    }
+    return extension;
+}
+
 std::string serializeMetadata(const FileMetadata& metadata) {
     std::ostringstream content;
+    content << "FILE_ID " << metadata.fileId << "\n";
+    content << "STORAGE_KEY " << metadata.storageKey << "\n";
+    content << "ORIGINAL_FILENAME " << metadata.originalFilename << "\n";
+    content << "EXTENSION " << normalizeExtension(metadata.extension) << "\n";
+    content << "CONTENT_TYPE " << metadata.contentType << "\n";
+    content << "CHECKSUM " << metadata.checksum << "\n";
+    content << "UPLOADED_AT " << metadata.uploadedAtEpochMs << "\n";
     content << "VERSION_ID " << metadata.versionId << "\n";
     content << "PREVIOUS_VERSION_ID "
             << (metadata.previousVersionId.empty() ? "-" : metadata.previousVersionId) << "\n";
@@ -131,6 +148,34 @@ bool parseMetadata(std::istream& in, FileMetadata& metadata) {
             metadata.versionId = fieldValue;
             return true;
         }
+        if (key == "FILE_ID") {
+            metadata.fileId = fieldValue;
+            return true;
+        }
+        if (key == "STORAGE_KEY") {
+            metadata.storageKey = fieldValue;
+            return true;
+        }
+        if (key == "ORIGINAL_FILENAME") {
+            metadata.originalFilename = fieldValue;
+            return true;
+        }
+        if (key == "EXTENSION") {
+            metadata.extension = fieldValue;
+            return true;
+        }
+        if (key == "CONTENT_TYPE") {
+            metadata.contentType = fieldValue;
+            return true;
+        }
+        if (key == "CHECKSUM") {
+            metadata.checksum = fieldValue;
+            return true;
+        }
+        if (key == "UPLOADED_AT") {
+            metadata.uploadedAtEpochMs = std::strtoll(fieldValue.c_str(), nullptr, 10);
+            return true;
+        }
         if (key == "PREVIOUS_VERSION_ID") {
             metadata.previousVersionId = (fieldValue == "-" ? "" : fieldValue);
             return true;
@@ -167,6 +212,30 @@ bool parseMetadata(std::istream& in, FileMetadata& metadata) {
     }
 
     return true;
+}
+
+void applyLegacyDefaults(const std::string& fileId, FileMetadata& metadata) {
+    if (metadata.fileId.empty()) {
+        metadata.fileId = fileId;
+    }
+    if (metadata.storageKey.empty()) {
+        metadata.storageKey = metadata.fileId;
+    }
+    if (metadata.originalFilename.empty()) {
+        metadata.originalFilename = metadata.fileId;
+    }
+    if (metadata.extension.empty()) {
+        const std::filesystem::path filename(metadata.originalFilename);
+        if (filename.has_extension()) {
+            metadata.extension = normalizeExtension(filename.extension().string());
+        }
+    }
+    if (metadata.contentType.empty()) {
+        metadata.contentType = "application/octet-stream";
+    }
+    if (metadata.uploadedAtEpochMs == 0) {
+        metadata.uploadedAtEpochMs = metadata.createdAtEpochMs;
+    }
 }
 
 bool loadMetadataFromPath(const std::string& path, FileMetadata& metadata) {
@@ -263,10 +332,9 @@ std::string MetadataManager::versionMetadataPath(const std::string& fileId,
 }
 
 // ================= SAVE METADATA =================
-bool MetadataManager::saveMetadata(const std::string& fileId,
-                                   const std::vector<ChunkInfo>& chunks,
-                                   size_t fileSize)
+bool MetadataManager::saveMetadata(const FileMetadata& sourceMetadata)
 {
+    const std::string& fileId = sourceMetadata.fileId;
     const std::string dir = metadataDir();
     const std::string versionsDir = versionMetadataDir(fileId);
     std::filesystem::create_directories(dir);
@@ -279,11 +347,18 @@ bool MetadataManager::saveMetadata(const std::string& fileId,
     const bool hadPrevious = loadMetadataFromPath(finalPath, previousMetadata);
 
     FileMetadata metadata;
+    metadata.fileId = fileId;
+    metadata.storageKey = sourceMetadata.storageKey;
+    metadata.originalFilename = sourceMetadata.originalFilename;
+    metadata.extension = normalizeExtension(sourceMetadata.extension);
+    metadata.contentType = sourceMetadata.contentType;
+    metadata.checksum = sourceMetadata.checksum;
+    metadata.uploadedAtEpochMs = sourceMetadata.uploadedAtEpochMs;
     metadata.versionId = createVersionId();
     metadata.previousVersionId = hadPrevious ? previousMetadata.versionId : "";
     metadata.createdAtEpochMs = currentEpochMillis();
-    metadata.fileSize = fileSize;
-    metadata.chunks = chunks;
+    metadata.fileSize = sourceMetadata.fileSize;
+    metadata.chunks = sourceMetadata.chunks;
 
     const std::string versionPath = versionMetadataPath(fileId, metadata.versionId);
     const std::string versionTempPath = versionPath + ".tmp";
@@ -353,6 +428,8 @@ bool MetadataManager::loadMetadata(const std::string& fileId, FileMetadata& meta
         return false;
     }
 
+    applyLegacyDefaults(fileId, loadedMetadata);
+
     {
         std::lock_guard<std::mutex> lock(metadataCacheMutex);
         metadataCache[key] = loadedMetadata;
@@ -366,7 +443,11 @@ bool MetadataManager::loadMetadataVersion(const std::string& fileId,
                                           const std::string& versionId,
                                           FileMetadata& metadata)
 {
-    return loadMetadataFromPath(versionMetadataPath(fileId, versionId), metadata);
+    if (!loadMetadataFromPath(versionMetadataPath(fileId, versionId), metadata)) {
+        return false;
+    }
+    applyLegacyDefaults(fileId, metadata);
+    return true;
 }
 
 std::vector<FileMetadata> MetadataManager::listMetadataVersions(const std::string& fileId)
@@ -376,6 +457,7 @@ std::vector<FileMetadata> MetadataManager::listMetadataVersions(const std::strin
 
     FileMetadata currentMetadata;
     if (loadMetadataFromPath(metadataPath(fileId), currentMetadata)) {
+        applyLegacyDefaults(fileId, currentMetadata);
         seenVersionIds[currentMetadata.versionId] = versions.size();
         versions.push_back(std::move(currentMetadata));
     }
@@ -391,6 +473,7 @@ std::vector<FileMetadata> MetadataManager::listMetadataVersions(const std::strin
             if (!loadMetadataFromPath(entry.path().string(), metadata)) {
                 continue;
             }
+            applyLegacyDefaults(fileId, metadata);
 
             if (!metadata.versionId.empty() &&
                 seenVersionIds.find(metadata.versionId) != seenVersionIds.end()) {

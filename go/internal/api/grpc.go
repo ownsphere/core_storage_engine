@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/ownsphere/core_storage_engine/go/internal/api/storagepb"
 	servicepkg "github.com/ownsphere/core_storage_engine/go/internal/service"
+	clientpkg "github.com/ownsphere/core_storage_engine/go/pkg/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
@@ -15,8 +17,11 @@ var ErrNilStorageService = errors.New("api: storage service is required")
 
 type storageWorkflowService interface {
 	StoreFile(ctx context.Context, sourcePath, fileID string) error
+	StoreFileWithMetadata(ctx context.Context, sourcePath, fileID string, options clientpkg.StoreFileOptions) (clientpkg.FileMetadata, error)
 	RetrieveFile(ctx context.Context, fileID, outputPath string) error
 	ListFiles(ctx context.Context) ([]string, error)
+	ListFileMetadata(ctx context.Context) ([]clientpkg.FileMetadata, error)
+	GetFileMetadata(ctx context.Context, fileID string) (clientpkg.FileMetadata, error)
 	DeleteFile(ctx context.Context, fileID string) error
 	DeleteAllFiles(ctx context.Context) error
 	Progress(ctx context.Context, fileID string) (int, error)
@@ -38,7 +43,17 @@ func NewGRPCServer(service storageWorkflowService) (*GRPCServer, error) {
 }
 
 func (s *GRPCServer) StoreFile(ctx context.Context, req *storagepb.StoreFileRequest) (*emptypb.Empty, error) {
-	if err := s.service.StoreFile(ctx, req.GetSourcePath(), req.GetFileId()); err != nil {
+	options := clientpkg.StoreFileOptions{
+		OriginalFilename: req.GetOriginalFilename(),
+		Extension:        req.GetExtension(),
+		ContentType:      req.GetContentType(),
+		Checksum:         req.GetChecksum(),
+	}
+	if uploadedAt := req.GetUploadedAtUnixMs(); uploadedAt > 0 {
+		options.UploadedAt = time.UnixMilli(uploadedAt).UTC()
+	}
+
+	if _, err := s.service.StoreFileWithMetadata(ctx, req.GetSourcePath(), req.GetFileId(), options); err != nil {
 		return nil, mapError(err)
 	}
 	return &emptypb.Empty{}, nil
@@ -56,7 +71,19 @@ func (s *GRPCServer) ListFiles(ctx context.Context, _ *storagepb.ListFilesReques
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &storagepb.ListFilesResponse{FileIds: files}, nil
+	metadata, err := s.service.ListFileMetadata(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &storagepb.ListFilesResponse{FileIds: files, Files: mapFileMetadataSlice(metadata)}, nil
+}
+
+func (s *GRPCServer) GetFileMetadata(ctx context.Context, req *storagepb.GetFileMetadataRequest) (*storagepb.GetFileMetadataResponse, error) {
+	metadata, err := s.service.GetFileMetadata(ctx, req.GetFileId())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &storagepb.GetFileMetadataResponse{Metadata: mapFileMetadata(metadata)}, nil
 }
 
 func (s *GRPCServer) DeleteFile(ctx context.Context, req *storagepb.DeleteFileRequest) (*emptypb.Empty, error) {
@@ -105,4 +132,28 @@ func mapError(err error) error {
 	default:
 		return status.Error(codes.Internal, err.Error())
 	}
+}
+
+func mapFileMetadata(metadata clientpkg.FileMetadata) *storagepb.FileMetadata {
+	result := &storagepb.FileMetadata{
+		FileId:           metadata.FileID,
+		StorageKey:       metadata.StorageKey,
+		OriginalFilename: metadata.OriginalFilename,
+		Extension:        metadata.Extension,
+		ContentType:      metadata.ContentType,
+		FileSize:         metadata.FileSize,
+		Checksum:         metadata.Checksum,
+	}
+	if !metadata.UploadedAt.IsZero() {
+		result.UploadedAtUnixMs = metadata.UploadedAt.UnixMilli()
+	}
+	return result
+}
+
+func mapFileMetadataSlice(items []clientpkg.FileMetadata) []*storagepb.FileMetadata {
+	result := make([]*storagepb.FileMetadata, 0, len(items))
+	for _, item := range items {
+		result = append(result, mapFileMetadata(item))
+	}
+	return result
 }

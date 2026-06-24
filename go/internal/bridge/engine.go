@@ -11,13 +11,34 @@ package bridge
 import "C"
 
 import (
+	"encoding/json"
 	"errors"
 	"runtime"
 	"sync"
+	"time"
 	"unsafe"
 )
 
 var errEngineClosed = errors.New("bridge: engine is closed")
+
+type StoreFileOptions struct {
+	OriginalFilename string
+	Extension        string
+	ContentType      string
+	Checksum         string
+	UploadedAt       time.Time
+}
+
+type FileMetadata struct {
+	FileID            string `json:"file_id"`
+	StorageKey        string `json:"storage_key"`
+	OriginalFilename  string `json:"original_filename"`
+	Extension         string `json:"extension"`
+	ContentType       string `json:"content_type"`
+	FileSize          int64  `json:"file_size"`
+	Checksum          string `json:"checksum"`
+	UploadedAtEpochMs int64  `json:"uploaded_at_epoch_ms"`
+}
 
 // Engine owns a native StorageEngine handle and exposes it as a Go-friendly API.
 type Engine struct {
@@ -67,16 +88,66 @@ func (e *Engine) Close() error {
 
 // StoreFile stores a file in the native storage engine.
 func (e *Engine) StoreFile(filePath, fileID string) error {
-	return e.withHandle(func(handle C.StorageEngineHandle) error {
+	_, err := e.StoreFileWithMetadata(filePath, fileID, StoreFileOptions{})
+	return err
+}
+
+// StoreFileWithMetadata stores a file and persists user-facing metadata.
+func (e *Engine) StoreFileWithMetadata(filePath, fileID string, options StoreFileOptions) (FileMetadata, error) {
+	var metadata FileMetadata
+
+	err := e.withHandle(func(handle C.StorageEngineHandle) error {
 		cFilePath := C.CString(filePath)
 		defer C.free(unsafe.Pointer(cFilePath))
 
 		cFileID := C.CString(fileID)
 		defer C.free(unsafe.Pointer(cFileID))
 
-		ok := C.storage_engine_store_file(handle, cFilePath, cFileID, nil)
-		return e.boolResult(handle, ok, "store file")
+		cOriginalFilename := cStringOrNil(options.OriginalFilename)
+		if cOriginalFilename != nil {
+			defer C.free(unsafe.Pointer(cOriginalFilename))
+		}
+		cExtension := cStringOrNil(options.Extension)
+		if cExtension != nil {
+			defer C.free(unsafe.Pointer(cExtension))
+		}
+		cContentType := cStringOrNil(options.ContentType)
+		if cContentType != nil {
+			defer C.free(unsafe.Pointer(cContentType))
+		}
+		cChecksum := cStringOrNil(options.Checksum)
+		if cChecksum != nil {
+			defer C.free(unsafe.Pointer(cChecksum))
+		}
+
+		var uploadedAtEpochMs C.longlong
+		if !options.UploadedAt.IsZero() {
+			uploadedAtEpochMs = C.longlong(options.UploadedAt.UnixMilli())
+		}
+
+		ok := C.storage_engine_store_file_with_metadata(
+			handle,
+			cFilePath,
+			cFileID,
+			cOriginalFilename,
+			cExtension,
+			cContentType,
+			cChecksum,
+			uploadedAtEpochMs,
+			nil,
+		)
+		if err := e.boolResult(handle, ok, "store file"); err != nil {
+			return err
+		}
+
+		var err error
+		metadata, err = e.fileMetadata(handle, fileID)
+		return err
 	})
+	if err != nil {
+		return FileMetadata{}, err
+	}
+	return metadata, nil
 }
 
 // RetrieveFile reconstructs a stored file at outputPath.
@@ -91,6 +162,22 @@ func (e *Engine) RetrieveFile(fileID, outputPath string) error {
 		ok := C.storage_engine_retrieve_file(handle, cFileID, cOutputPath, nil)
 		return e.boolResult(handle, ok, "retrieve file")
 	})
+}
+
+// GetFileMetadata returns persisted user-facing metadata for a stored file.
+func (e *Engine) GetFileMetadata(fileID string) (FileMetadata, error) {
+	var metadata FileMetadata
+
+	err := e.withHandle(func(handle C.StorageEngineHandle) error {
+		var err error
+		metadata, err = e.fileMetadata(handle, fileID)
+		return err
+	})
+	if err != nil {
+		return FileMetadata{}, err
+	}
+
+	return metadata, nil
 }
 
 // ListFiles returns every file ID currently tracked by the native engine.
@@ -218,6 +305,23 @@ func (e *Engine) lastError(handle C.StorageEngineHandle, action string) error {
 		return errors.New("bridge: " + text)
 	}
 	return errors.New("bridge: " + action + ": " + text)
+}
+
+func (e *Engine) fileMetadata(handle C.StorageEngineHandle, fileID string) (FileMetadata, error) {
+	cFileID := C.CString(fileID)
+	defer C.free(unsafe.Pointer(cFileID))
+
+	payload := C.storage_engine_get_file_metadata_json(handle, cFileID)
+	if payload == nil {
+		return FileMetadata{}, e.lastError(handle, "get file metadata")
+	}
+	defer C.storage_engine_free_string(payload)
+
+	var metadata FileMetadata
+	if err := json.Unmarshal([]byte(C.GoString(payload)), &metadata); err != nil {
+		return FileMetadata{}, err
+	}
+	return metadata, nil
 }
 
 func cStringOrNil(value string) *C.char {

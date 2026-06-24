@@ -99,6 +99,32 @@ TEST_F(CBridgeTest, RetrieveFileWithCharPointerConversion) {
     storage_engine_destroy(engine);
 }
 
+TEST_F(CBridgeTest, GetFileMetadataReturnsJSONPayload) {
+    StorageEngineHandle engine = storage_engine_create(testDir.c_str());
+    ASSERT_NE(engine, nullptr);
+
+    std::string testFile = createTestFile("metadata content");
+    ASSERT_TRUE(storage_engine_store_file_with_metadata(
+        engine,
+        testFile.c_str(),
+        "metadata_test",
+        "pretty-name.txt",
+        "txt",
+        "text/plain",
+        nullptr,
+        1710000000123,
+        nullptr));
+
+    char* metadata = storage_engine_get_file_metadata_json(engine, "metadata_test");
+    ASSERT_NE(metadata, nullptr);
+    std::string payload(metadata);
+    EXPECT_NE(payload.find("\"original_filename\":\"pretty-name.txt\""), std::string::npos);
+    EXPECT_NE(payload.find("\"content_type\":\"text/plain\""), std::string::npos);
+
+    storage_engine_free_string(metadata);
+    storage_engine_destroy(engine);
+}
+
 TEST_F(CBridgeTest, ListFilesReturnsCorrectStringArray) {
     StorageEngineHandle engine = storage_engine_create(testDir.c_str());
     ASSERT_NE(engine, nullptr);
